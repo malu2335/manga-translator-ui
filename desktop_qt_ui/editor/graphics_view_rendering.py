@@ -121,10 +121,9 @@ class GraphicsViewRenderingMixin:
             if edit_kind is None:
                 edit_kind = self._consume_pending_geometry_edit(index)
 
-            if edit_kind == "white_frame":
-                override = self._build_dst_points_from_item(item)
-                self._recalculate_single_region_render_data(index, override_dst_points=override)
-            else:
+            # white_frame 编辑时 item.geo 在拖动中已经更新过，跳过 update_from_data。
+            # 其他编辑（rotate/move/shape/other）需要从 model 同步到 item。
+            if edit_kind != "white_frame":
                 region_for_item = region_data.copy()
                 if (
                     hasattr(item, "geo")
@@ -137,7 +136,10 @@ class GraphicsViewRenderingMixin:
                     except Exception:
                         pass
                 item.update_from_data(region_for_item)
-                self._recalculate_single_region_render_data(index)
+
+            # dst 永远由 calc_box_from_font(字号) 反算 + render_center 定位（snapshot 完成），
+            # 不再需要 override —— 白框只负责 UI 显示和提供渲染中心。
+            self._recalculate_single_region_render_data(index)
 
             self._update_single_region_text_visual(index)
             if item.scene() is not None:
@@ -178,38 +180,6 @@ class GraphicsViewRenderingMixin:
             return self._values_equal(model_wf, item_wf)
         except Exception:
             return False
-
-    def _build_dst_points_from_item(self, item):
-        wf = item.geo.white_frame_local
-        if wf is None or len(wf) != 4:
-            return None
-        left, top, right, bottom = wf
-        box_w = float(right - left)
-        box_h = float(bottom - top)
-        if box_w <= 0.0 or box_h <= 0.0:
-            return None
-
-        cx, cy = item.geo.center
-        angle = float(getattr(item.geo, "angle", 0.0) or 0.0)
-        theta = np.deg2rad(angle)
-        cos_t = np.cos(theta)
-        sin_t = np.sin(theta)
-        local_cx = (left + right) / 2.0
-        local_cy = (top + bottom) / 2.0
-        render_cx = float(cx + local_cx * cos_t - local_cy * sin_t)
-        render_cy = float(cy + local_cx * sin_t + local_cy * cos_t)
-        half_w = box_w / 2.0
-        half_h = box_h / 2.0
-
-        return np.array(
-            [[
-                [render_cx - half_w, render_cy - half_h],
-                [render_cx + half_w, render_cy - half_h],
-                [render_cx + half_w, render_cy + half_h],
-                [render_cx - half_w, render_cy + half_h],
-            ]],
-            dtype=np.float32,
-        )
 
     def _ensure_render_cache_size(self, index: int):
         self.render_coordinator.ensure_region_capacity(index)

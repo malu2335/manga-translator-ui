@@ -181,10 +181,12 @@ class EditorControllerExportService:
         render_box = region.get("render_box_rect_local")
         has_custom = bool(region.get("has_custom_white_frame", False))
 
+        # 解绑：与编辑器 snapshot 同步——用户手动白框存在时优先白框，
+        # 让导出和预览的渲染中心走同一条路。
+        if has_custom and isinstance(custom_box, (list, tuple)) and len(custom_box) == 4:
+            return custom_box
         if isinstance(render_box, (list, tuple)) and len(render_box) == 4:
             return render_box
-        if isinstance(custom_box, (list, tuple)) and len(custom_box) == 4 and has_custom:
-            return custom_box
         if isinstance(custom_box, (list, tuple)) and len(custom_box) == 4:
             return custom_box
         return None

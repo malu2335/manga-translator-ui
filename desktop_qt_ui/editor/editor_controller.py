@@ -31,6 +31,58 @@ from .session import DocumentSnapshot
 _UNSET = object()
 
 
+# 改变这些字段会影响字号反算的文字像素尺寸，需要同步刷新白框：
+# 保持白框中心不变，把宽高更新为 calc_box_from_font(新参数) 的结果。
+_FONT_AFFECTING_FIELDS = frozenset({
+    "translation", "text", "font_size", "font_path",
+    "letter_spacing", "line_spacing", "direction",
+    "stroke_width", "text_stroke_width",
+})
+
+
+def _sync_white_frame_size_for_font_change(region_data: dict) -> None:
+    """字体/译文/描边/字间距等属性改变后，把白框尺寸同步成字号反算尺寸。
+
+    保持白框中心不变；尺寸 = calc_box_from_font(font_size, translation, ...)。
+    标记 has_custom_white_frame=True 让其优先于 render_box 主导渲染中心。
+    """
+    try:
+        from manga_translator.rendering import calc_box_from_font
+
+        font_size = int(region_data.get("font_size") or 0)
+        translation = (region_data.get("translation") or "").strip()
+        if font_size <= 0 or not translation:
+            return
+
+        direction = region_data.get("direction", "h")
+        is_horizontal = direction in ("h", "horizontal", "hr")
+        line_spacing = float(region_data.get("line_spacing") or 1.0)
+        letter_spacing = float(region_data.get("letter_spacing") or 1.0)
+
+        w, h, _ = calc_box_from_font(
+            font_size, translation, is_horizontal, line_spacing,
+            None, None, center=None, angle=0, letter_spacing=letter_spacing,
+        )
+        if w <= 0 or h <= 0:
+            return
+
+        wf = region_data.get("white_frame_rect_local")
+        if isinstance(wf, (list, tuple)) and len(wf) == 4:
+            local_cx = (float(wf[0]) + float(wf[2])) / 2.0
+            local_cy = (float(wf[1]) + float(wf[3])) / 2.0
+        else:
+            local_cx = local_cy = 0.0
+
+        half_w, half_h = float(w) / 2.0, float(h) / 2.0
+        region_data["white_frame_rect_local"] = [
+            local_cx - half_w, local_cy - half_h,
+            local_cx + half_w, local_cy + half_h,
+        ]
+        region_data["has_custom_white_frame"] = True
+    except Exception:
+        return
+
+
 class EditorController(QObject):
     """
     编辑器控制器 (Controller)
@@ -561,6 +613,11 @@ class EditorController(QObject):
 
         new_region_data = old_region_data.copy()
         new_region_data[field_name] = value
+
+        # 字体/译文等属性改变 → 同步白框尺寸（保持白框中心），让 UI 立即跟上新字号。
+        if field_name in _FONT_AFFECTING_FIELDS:
+            _sync_white_frame_size_for_font_change(new_region_data)
+
         command = self._build_region_update_command(
             region_index=region_index,
             old_data=old_region_data,
