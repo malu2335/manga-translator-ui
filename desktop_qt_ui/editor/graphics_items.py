@@ -772,10 +772,17 @@ class RegionTextItem(QGraphicsItemGroup):
         )
 
     def _detect_spacing_snap(self, my_points: dict) -> tuple:
-        """智能间距吸附：检测与其他 item 对的等距关系。"""
+        """智能间距吸附:检测与其它 item 对的等距关系。
+
+        对每对 (pa, pb),规范化使较小 far 的为"左/上"框,在两个轴上分别尝试
+        两个吸附候选:
+          1. 拖到右框远侧:my_near 对齐到 right_far + gap
+          2. 拖到左框近侧:my_far  对齐到 left_near - gap
+        """
         scene = self.scene()
         if scene is None:
             return 0.0, 0.0, []
+
         others: list[dict] = []
         for item in scene.items():
             if not isinstance(item, RegionTextItem):
@@ -783,90 +790,56 @@ class RegionTextItem(QGraphicsItemGroup):
             if item is self or item.isSelected():
                 continue
             pts = item._get_white_frame_world_points()
-            if pts:
+            if pts and all(pts.get(k) for k in ("left", "right", "top", "bottom")):
                 others.append(pts)
         if len(others) < 2:
             return 0.0, 0.0, []
 
         threshold = self._spacing_snap_threshold
-        snap_dx = 0.0; snap_dy = 0.0
-        guides = []
+        snap = [0.0, 0.0]   # [dx, dy]
+        guides: list = []
 
-        my_left = my_points.get("left"); my_right = my_points.get("right")
-        my_top = my_points.get("top"); my_bottom = my_points.get("bottom")
+        # 每个轴的元数据: (axis_index, ori, near_key, far_key, perp_key, abcd_keys)
+        axes = [
+            (0, "h", "left", "right", "y", ("x1", "x2", "x3", "x4")),
+            (1, "v", "top",  "bottom", "x", ("y1", "y2", "y3", "y4")),
+        ]
 
-        for i, pa in enumerate(others):
-            al = pa.get("left"); ar = pa.get("right")
-            at = pa.get("top"); ab = pa.get("bottom")
-            if not all([al, ar, at, ab]):
+        for axis_idx, ori, near_k, far_k, perp_k, abcd_keys in axes:
+            my_near = my_points.get(near_k)
+            my_far = my_points.get(far_k)
+            if not (my_near and my_far):
                 continue
-            for j, pb in enumerate(others):
-                if j <= i:
-                    continue
-                bl = pb.get("left"); br = pb.get("right")
-                bt = pb.get("top"); bb = pb.get("bottom")
-                if not all([bl, br, bt, bb]):
-                    continue
+            comp = (lambda p: p.x()) if axis_idx == 0 else (lambda p: p.y())
+            perp = (lambda p: p.y()) if axis_idx == 0 else (lambda p: p.x())
 
-                # ── 水平间距 ──
-                if my_left and my_right:
-                    # A 在 B 左边
-                    if ar.x() < bl.x():
-                        gap = bl.x() - ar.x()
-                        if gap >= 4:
-                            # 拖到 B 右边
-                            tgt = br.x() + gap
-                            if abs(my_left.x() - tgt) < threshold and abs(snap_dx) < 0.01:
-                                snap_dx = tgt - my_left.x()
-                                guides.append({"kind":"spacing","ori":"h","x1":ar.x(),"x2":bl.x(),"x3":br.x(),"x4":tgt,"y":my_left.y(),"label":f"{gap:.0f}"})
-                            # 拖到 A 左边
-                            tgt = al.x() - gap
-                            if abs(my_right.x() - tgt) < threshold and abs(snap_dx) < 0.01:
-                                snap_dx = tgt - my_right.x()
-                                guides.append({"kind":"spacing","ori":"h","x1":al.x()-gap,"x2":al.x(),"x3":ar.x(),"x4":br.x(),"y":my_right.y(),"label":f"{gap:.0f}"})
-                    # B 在 A 左边
-                    if br.x() < al.x():
-                        gap = al.x() - br.x()
-                        if gap >= 4:
-                            tgt = ar.x() + gap
-                            if abs(my_left.x() - tgt) < threshold and abs(snap_dx) < 0.01:
-                                snap_dx = tgt - my_left.x()
-                                guides.append({"kind":"spacing","ori":"h","x1":br.x(),"x2":al.x(),"x3":ar.x(),"x4":tgt,"y":my_left.y(),"label":f"{gap:.0f}"})
-                            tgt = bl.x() - gap
-                            if abs(my_right.x() - tgt) < threshold and abs(snap_dx) < 0.01:
-                                snap_dx = tgt - my_right.x()
-                                guides.append({"kind":"spacing","ori":"h","x1":bl.x()-gap,"x2":bl.x(),"x3":br.x(),"x4":al.x(),"y":my_right.y(),"label":f"{gap:.0f}"})
+            for i, pa in enumerate(others):
+                for pb in others[i + 1:]:
+                    an, af = comp(pa[near_k]), comp(pa[far_k])
+                    bn, bf = comp(pb[near_k]), comp(pb[far_k])
+                    # 规范化:far 较小的为"左/上"框
+                    if af < bn:
+                        ln_, lf_, rn_, rf_ = an, af, bn, bf
+                    elif bf < an:
+                        ln_, lf_, rn_, rf_ = bn, bf, an, af
+                    else:
+                        continue
+                    gap = rn_ - lf_
+                    if gap < 4:
+                        continue
+                    candidates = [
+                        (rf_ + gap, my_near, (lf_, rn_, rf_, rf_ + gap)),
+                        (ln_ - gap, my_far,  (ln_ - gap, ln_, lf_, rn_)),
+                    ]
+                    for tgt, my_edge, abcd in candidates:
+                        if abs(comp(my_edge) - tgt) < threshold and abs(snap[axis_idx]) < 0.01:
+                            snap[axis_idx] = tgt - comp(my_edge)
+                            spec = {"kind": "spacing", "ori": ori, "label": f"{gap:.0f}", perp_k: perp(my_edge)}
+                            for key, value in zip(abcd_keys, abcd):
+                                spec[key] = value
+                            guides.append(spec)
 
-                # ── 垂直间距 ──
-                if my_top and my_bottom:
-                    # A 在 B 上边
-                    if ab.y() < bt.y():
-                        gap = bt.y() - ab.y()
-                        if gap >= 4:
-                            # 拖到 B 下边
-                            tgt = bb.y() + gap
-                            if abs(my_top.y() - tgt) < threshold and abs(snap_dy) < 0.01:
-                                snap_dy = tgt - my_top.y()
-                                guides.append({"kind":"spacing","ori":"v","y1":ab.y(),"y2":bt.y(),"y3":bb.y(),"y4":tgt,"x":my_top.x(),"label":f"{gap:.0f}"})
-                            # 拖到 A 上边
-                            tgt = at.y() - gap
-                            if abs(my_bottom.y() - tgt) < threshold and abs(snap_dy) < 0.01:
-                                snap_dy = tgt - my_bottom.y()
-                                guides.append({"kind":"spacing","ori":"v","y1":at.y()-gap,"y2":at.y(),"y3":ab.y(),"y4":bt.y(),"x":my_bottom.x(),"label":f"{gap:.0f}"})
-                    # B 在 A 上边
-                    if bb.y() < at.y():
-                        gap = at.y() - bb.y()
-                        if gap >= 4:
-                            tgt = ab.y() + gap
-                            if abs(my_top.y() - tgt) < threshold and abs(snap_dy) < 0.01:
-                                snap_dy = tgt - my_top.y()
-                                guides.append({"kind":"spacing","ori":"v","y1":bb.y(),"y2":at.y(),"y3":ab.y(),"y4":tgt,"x":my_top.x(),"label":f"{gap:.0f}"})
-                            tgt = bt.y() - gap
-                            if abs(my_bottom.y() - tgt) < threshold and abs(snap_dy) < 0.01:
-                                snap_dy = tgt - my_bottom.y()
-                                guides.append({"kind":"spacing","ori":"v","y1":bt.y()-gap,"y2":bt.y(),"y3":bb.y(),"y4":at.y(),"x":my_bottom.x(),"label":f"{gap:.0f}"})
-
-        return snap_dx, snap_dy, guides
+        return snap[0], snap[1], guides
 
     def _show_guide_lines(self, guide_specs: list, is_rotation: bool = False):
         """在场景中绘制全屏的对齐/旋转辅助虚线 + 间距标尺。"""
