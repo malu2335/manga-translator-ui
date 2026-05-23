@@ -56,7 +56,7 @@ class EditorControllerDocumentService:
     def file_service(self):
         return self.controller.file_service
 
-    def clear_editor_state(self, release_image_cache: bool = False) -> None:
+    def clear_editor_state(self, release_image_cache: bool = False, keep_document: bool = False) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)
         if loading_toast is not None:
             try:
@@ -68,8 +68,10 @@ class EditorControllerDocumentService:
         self.async_service.cancel_all_tasks()
         self.controller.inpaint_service.invalidate_inpaint_requests()
 
-        self.resource_manager.unload_image(release_from_cache=release_image_cache)
-        self.model.clear_document()
+        if not keep_document:
+            # keep_document=True: 切图场景,跳过 image_changed(None) 让旧画面留到新数据覆盖时
+            self.resource_manager.unload_image(release_from_cache=release_image_cache)
+            self.model.clear_document()
 
         toolbar = self.controller.get_toolbar()
         if toolbar is not None:
@@ -83,7 +85,9 @@ class EditorControllerDocumentService:
         self.controller._last_export_snapshot = None
         self.controller._log_memory_snapshot("after-clear-editor-state")
 
-        self.resource_manager.clear_cache()
+        if not keep_document:
+            # 切图时不清缓存:LRU 还要保留 QImage 让来回切换瞬时
+            self.resource_manager.clear_cache()
         render_parameter_service = get_render_parameter_service()
         render_parameter_service.clear_cache()
 
@@ -203,23 +207,8 @@ class EditorControllerDocumentService:
         )
 
     def do_load_image(self, image_path: str) -> None:
-        # 切图轻量清理：取消后台任务 + 清历史。不碰 model/画布，旧图保留。
-        self.async_service.cancel_all_tasks()
-        self.controller.inpaint_service.invalidate_inpaint_requests()
-        self.history_service.clear()
-        self.history_service.mark_clean()
-        self.controller._update_undo_redo_buttons()
-        self.controller._user_adjusted_alpha = False
-        self.controller._last_export_snapshot = None
-        from services import get_render_parameter_service
-        get_render_parameter_service().clear_cache()
-        load_executor = getattr(self.controller, "_load_executor", None)
-        if load_executor is not None:
-            try:
-                load_executor.shutdown(wait=False)
-            except Exception:
-                pass
-            delattr(self.controller, "_load_executor")
+        # 切图:保留旧画面 + 旧 LRU 缓存,等新数据信号到达再覆盖,避免黑闪
+        self.clear_editor_state(keep_document=True)
 
         toast_manager = self.controller.get_toast_manager()
         if toast_manager is not None:
@@ -233,6 +222,13 @@ class EditorControllerDocumentService:
                 source_path, display_image_path = self.resolve_editor_image_paths(image_path)
                 image_resource = self.resource_manager.load_image(display_image_path)
                 image = image_resource.image
+                # 后台预转 QImage 到 ImageResource(走 LRU);命中缓存时跳过
+                if image_resource.qimage is None:
+                    try:
+                        from .image_utils import image_like_to_qimage
+                        image_resource.qimage = image_like_to_qimage(image)
+                    except Exception as conv_err:
+                        self.logger.warning(f"Failed to pre-convert QImage: {conv_err}")
 
                 compare_image = image
                 if os.path.normpath(source_path) != os.path.normpath(display_image_path):
