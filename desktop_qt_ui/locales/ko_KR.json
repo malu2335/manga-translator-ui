@@ -469,6 +469,7 @@
   "No Selection": "선택 안 함",
   "Original Text:": "원문:",
   "Translated Text:": "번역문:",
+  "Show Translation (Raw)": "치환 전 번역문 표시",
   "OCR Model:": "OCR 모델:",
   "Brush Size:": "브러시 크기:",
   "Placeholder": "자리 표시자",

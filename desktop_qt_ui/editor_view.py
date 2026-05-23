@@ -325,6 +325,7 @@ class EditorView(QWidget):
 
         # --- Property Panel (Left Panel) to Controller ---
         self.property_panel.translated_text_modified.connect(self.controller.update_translated_text)
+        self.property_panel.translation_raw_modified.connect(self.controller.update_translation_raw)
         self.property_panel.original_text_modified.connect(self.controller.update_original_text)
         self.property_panel.ocr_requested.connect(self.controller.run_ocr_for_selection)
         self.property_panel.translation_requested.connect(self.controller.run_translation_for_selection)

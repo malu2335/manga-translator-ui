@@ -469,6 +469,7 @@
   "No Selection": "選択なし",
   "Original Text:": "原文：",
   "Translated Text:": "翻訳文：",
+  "Show Translation (Raw)": "置換前翻訳文を表示",
   "OCR Model:": "OCRモデル：",
   "Brush Size:": "ブラシサイズ：",
   "Placeholder": "プレースホルダー",

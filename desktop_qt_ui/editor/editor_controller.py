@@ -485,6 +485,8 @@ class EditorController(QObject):
 
             new_region_data = old_region_data.copy()
             new_region_data["translation"] = text
+            # 译文批量更新时同步覆盖 translation_raw(规则不可逆,只能粗暴同步)
+            new_region_data["translation_raw"] = text
             commands.append(
                 UpdateRegionCommand(
                     model=self.model,
@@ -700,12 +702,78 @@ class EditorController(QObject):
 
     @pyqtSlot(int, str)
     def update_translated_text(self, region_index: int, text: str):
-        self._update_region_field(
+        # 译文编辑:同步覆盖 translation_raw(规则不可逆,只能粗暴同步)
+        self._update_translation_pair(
             region_index,
-            "translation",
-            text,
+            translation=text,
+            translation_raw=text,
             description=f"Update Translation Region {region_index}",
+            merge_key=f"region:{region_index}:translation",
         )
+
+    @pyqtSlot(int, str)
+    def update_translation_raw(self, region_index: int, raw_text: str):
+        """编辑替换前译文:实时跑 apply_replacements 同步到 translation 字段。"""
+        from manga_translator.rendering.text_replacements import apply_replacements
+
+        old_region_data = self._get_region_by_index(region_index)
+        if not old_region_data:
+            return
+
+        # 推 direction(参考 L57: ('h','horizontal','hr') 为横排,其它视为竖排)
+        direction_val = old_region_data.get("direction", "h")
+        direction = 0 if direction_val in ("h", "horizontal", "hr") else 1
+        try:
+            new_translation = apply_replacements(raw_text, direction)
+        except Exception as e:
+            # 替换规则编译失败等,回退用原文
+            self.logger.warning(f"apply_replacements failed for region {region_index}: {e}")
+            new_translation = raw_text
+
+        self._update_translation_pair(
+            region_index,
+            translation=new_translation,
+            translation_raw=raw_text,
+            description=f"Update Translation Raw Region {region_index}",
+            merge_key=f"region:{region_index}:translation_raw",
+        )
+
+    def _update_translation_pair(
+        self,
+        region_index: int,
+        *,
+        translation: str,
+        translation_raw: str,
+        description: str,
+        merge_key: str,
+    ) -> bool:
+        """同时更新 translation 和 translation_raw,共用一个 Undo Command(撤销时一起回滚)。"""
+        old_region_data = self._get_region_by_index(region_index)
+        if not old_region_data:
+            return False
+
+        old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
+
+        if (old_region_data.get("translation", "") == translation
+                and old_region_data.get("translation_raw", "") == translation_raw):
+            return False
+
+        new_region_data = old_region_data.copy()
+        new_region_data["translation"] = translation
+        new_region_data["translation_raw"] = translation_raw
+
+        # translation 是 _FONT_AFFECTING_FIELDS 成员,改动后同步白框尺寸
+        _sync_white_frame_size_for_font_change(new_region_data)
+
+        command = self._build_region_update_command(
+            region_index=region_index,
+            old_data=old_region_data,
+            new_data=new_region_data,
+            description=description,
+            merge_key=merge_key,
+        )
+        self.execute_command(command)
+        return True
 
     @pyqtSlot(int, str)
     def update_original_text(self, region_index: int, text: str):

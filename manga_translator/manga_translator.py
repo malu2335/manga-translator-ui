@@ -5150,30 +5150,15 @@ class MangaTranslator:
             if original != region.translation:  
                 post_replacements.append(f"{original} => {region.translation}")  
 
-        if post_replacements:  
-            logger.info("Post-translation replacements:")  
-            for replacement in post_replacements:  
-                logger.info(replacement)  
-        else:  
+        if post_replacements:
+            logger.info("Post-translation replacements:")
+            for replacement in post_replacements:
+                logger.info(replacement)
+        else:
             logger.info("No post-translation replacements made.")
 
-        # 应用文本替换规则（text_replacements.yaml）
-        if not getattr(self, 'skip_text_replacements', False):
-            from .rendering.text_replacements import apply_replacements, load_replacements
-            _repl_rules = load_replacements()
-            _repl_changes = []
-            for region in ctx.text_regions:
-                if not region.translation:
-                    continue
-                original = region.translation
-                direction = 1 if region.vertical else 0
-                region.translation = apply_replacements(region.translation, direction, _repl_rules)
-                if original != region.translation:
-                    _repl_changes.append(f"{original} => {region.translation}")
-            if _repl_changes:
-                logger.info(f"Text replacements applied: {len(_repl_changes)} changes")
-                for change in _repl_changes:
-                    logger.info(change)
+        # 注:文本替换规则(text_replacements.yaml) 已挪到 rendering 函数 dispatch() 内执行,
+        # 在 [BR]/<H> 标记加完之后、画字之前 — 这样 raw 含完整标记,渲染图也用替换后字符。
 
         # 单个region幻觉检测
         failed_regions = []

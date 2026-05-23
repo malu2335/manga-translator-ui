@@ -2130,13 +2130,26 @@ async def dispatch(
     text_regions = list(filter(lambda region: region.translation, text_regions))
 
     result = resize_regions_to_font_size(img, text_regions, config, original_img, return_debug_img, skip_font_scaling=skip_font_scaling)
-    
+
     # Handle return value (may be tuple if debug image is included)
     if return_debug_img and isinstance(result, tuple):
         dst_points_list, debug_img = result
     else:
         dst_points_list = result
         debug_img = None
+
+    # [BR]/<H> 标记已加完,在画字之前备份 translation_raw + 跑替换规则。
+    # apply_replacements 内部 protect 了 [BR]/<H>/<br>/【BR】,字符替换不会破坏标记;
+    # 画字用替换后的字符串 → 图上字符也经过规则替换;raw 是替换前 + 含完整标记。
+    from .text_replacements import apply_replacements, load_replacements
+    _repl_rules = load_replacements()
+    for _region in text_regions:
+        if not _region.translation:
+            continue
+        if not getattr(_region, 'translation_raw', ''):
+            _region.translation_raw = _region.translation
+        _direction = 1 if _region.vertical else 0
+        _region.translation = apply_replacements(_region.translation, _direction, _repl_rules)
 
     for region_idx, (region, dst_points) in enumerate(tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions))):
         # 保存缩放算法计算的 dst_points 到 region，供 PSD 导出使用
@@ -2481,6 +2494,16 @@ def render(
     
     # 重新计算变换矩阵
     M_local, _ = cv2.findHomography(src_points, local_dst_points[0], cv2.RANSAC, 5.0)
+
+    # 边界裁剪 (pts[:, 0] = np.minimum(...)/np.maximum(...)) 是按 x/y 分量独立 clip 的，
+    # 多个角点都越界时会被裁到同一边界值而重合，dst_points 退化成非可逆四边形，
+    # findHomography 算不出矩阵。此时回退用未裁剪的原始 dst_points —
+    # 局部区域已经裁剪到图内，warpPerspective 不会越界。
+    if M_local is None:
+        fallback_points = dst_points[0].copy().astype(np.float32)
+        fallback_points[:, 0] -= local_x1
+        fallback_points[:, 1] -= local_y1
+        M_local, _ = cv2.findHomography(src_points, fallback_points, cv2.RANSAC, 5.0)
 
     # 检查变换矩阵是否有效
     if M_local is None:
