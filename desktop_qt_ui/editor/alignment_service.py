@@ -270,7 +270,6 @@ def distribute_spacing_items(
         target_near = prev_far + gap_per_space
         delta = target_near - near
         prev_delta = delta
-        delta = target_near - near
         new_cx = cx + (0.0 if is_vert else delta)
         new_cy = cy + (delta if is_vert else 0.0)
         results.append((item.region_index, new_cx, new_cy))

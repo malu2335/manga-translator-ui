@@ -1094,5 +1094,16 @@
   "Warning": "경고",
   "Error": "오류",
   "Filter:": "필터:",
-  "Type to filter by pattern / replace / comment...": "패턴 / 치환 / 주석으로 필터링하려면 입력..."
+  "Type to filter by pattern / replace / comment...": "패턴 / 치환 / 주석으로 필터링하려면 입력...",
+  "Selection": "선택 영역",
+  "Canvas": "캔버스",
+  "Align reference: selection (bounding box) / canvas (whole image)": "정렬 기준: 선택 영역(경계 상자) / 캔버스(전체 이미지)",
+  "Align Left": "왼쪽 정렬",
+  "Align Horizontal Center": "가로 가운데 정렬",
+  "Align Right": "오른쪽 정렬",
+  "Align Top": "위쪽 정렬",
+  "Align Vertical Center": "세로 가운데 정렬",
+  "Align Bottom": "아래쪽 정렬",
+  "Distribute Vertical Spacing": "세로 간격 균등 배분",
+  "Distribute Horizontal Spacing": "가로 간격 균등 배분"
 }

@@ -1104,5 +1104,16 @@
   "Warning": "警告",
   "Error": "错误",
   "Filter:": "过滤:",
-  "Type to filter by pattern / replace / comment...": "输入匹配 / 替换 / 备注以过滤..."
+  "Type to filter by pattern / replace / comment...": "输入匹配 / 替换 / 备注以过滤...",
+  "Selection": "选区",
+  "Canvas": "画布",
+  "Align reference: selection (bounding box) / canvas (whole image)": "对齐参照：选区（包围盒）/ 画布（整张图）",
+  "Align Left": "左对齐",
+  "Align Horizontal Center": "水平居中",
+  "Align Right": "右对齐",
+  "Align Top": "顶对齐",
+  "Align Vertical Center": "垂直居中",
+  "Align Bottom": "底对齐",
+  "Distribute Vertical Spacing": "垂直间距分布",
+  "Distribute Horizontal Spacing": "水平间距分布"
 }

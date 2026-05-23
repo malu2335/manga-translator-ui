@@ -217,8 +217,6 @@ class EditorControllerExportService:
             left, top, right, bottom = (float(v) for v in wf_local)
             lx = (left + right) / 2.0
             ly = (top + bottom) / 2.0
-            if abs(lx) < 0.001 and abs(ly) < 0.001:
-                return
             cx, cy = float(base_center[0]), float(base_center[1])
             angle = float(region.get("angle") or 0.0)
             rad = math.radians(angle)

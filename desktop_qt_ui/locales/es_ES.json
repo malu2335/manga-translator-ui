@@ -1094,5 +1094,16 @@
   "Warning": "Advertencia",
   "Error": "Error",
   "Filter:": "Filtrar:",
-  "Type to filter by pattern / replace / comment...": "Escriba para filtrar por patrón / reemplazo / comentario..."
+  "Type to filter by pattern / replace / comment...": "Escriba para filtrar por patrón / reemplazo / comentario...",
+  "Selection": "Selección",
+  "Canvas": "Lienzo",
+  "Align reference: selection (bounding box) / canvas (whole image)": "Referencia de alineación: selección (cuadro delimitador) / lienzo (imagen completa)",
+  "Align Left": "Alinear a la izquierda",
+  "Align Horizontal Center": "Centrar horizontalmente",
+  "Align Right": "Alinear a la derecha",
+  "Align Top": "Alinear arriba",
+  "Align Vertical Center": "Centrar verticalmente",
+  "Align Bottom": "Alinear abajo",
+  "Distribute Vertical Spacing": "Distribuir espaciado vertical",
+  "Distribute Horizontal Spacing": "Distribuir espaciado horizontal"
 }

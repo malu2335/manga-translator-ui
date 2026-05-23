@@ -1094,5 +1094,16 @@
   "Warning": "警告",
   "Error": "エラー",
   "Filter:": "フィルター:",
-  "Type to filter by pattern / replace / comment...": "パターン / 置換 / コメントで絞り込み..."
+  "Type to filter by pattern / replace / comment...": "パターン / 置換 / コメントで絞り込み...",
+  "Selection": "選択範囲",
+  "Canvas": "キャンバス",
+  "Align reference: selection (bounding box) / canvas (whole image)": "整列の基準：選択範囲（バウンディング ボックス）/ キャンバス（画像全体）",
+  "Align Left": "左揃え",
+  "Align Horizontal Center": "水平中央揃え",
+  "Align Right": "右揃え",
+  "Align Top": "上揃え",
+  "Align Vertical Center": "垂直中央揃え",
+  "Align Bottom": "下揃え",
+  "Distribute Vertical Spacing": "垂直方向の間隔を均等配置",
+  "Distribute Horizontal Spacing": "水平方向の間隔を均等配置"
 }

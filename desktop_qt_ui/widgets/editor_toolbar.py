@@ -208,10 +208,10 @@ class EditorToolbar(QWidget):
 
         # 参照模式切换（独立放在外面）
         self.align_ref_button = QToolButton()
-        self.align_ref_button.setText("选区")
+        self.align_ref_button.setText(self._t("Selection"))
         self.align_ref_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.align_ref_button.setObjectName("editor_align_ref_button")
-        self.align_ref_button.setToolTip("对齐参照：选区（包围盒）/ 画布（整张图）")
+        self.align_ref_button.setToolTip(self._t("Align reference: selection (bounding box) / canvas (whole image)"))
         self._align_ref = "selection"
         self._last_selection_count = 0
         self.align_ref_button.clicked.connect(self._toggle_align_ref)
@@ -228,8 +228,9 @@ class EditorToolbar(QWidget):
         # ── 第 1 组: 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
         self.align_buttons: dict[str, QToolButton] = {}
         group1 = [
-            ("left", "左对齐"), ("horizontal_center", "水平居中"),
-            ("right", "右对齐"),
+            ("left", self._t("Align Left")),
+            ("horizontal_center", self._t("Align Horizontal Center")),
+            ("right", self._t("Align Right")),
         ]
         for mode, tip in group1:
             icon = self._themed_icon(f"align_{mode}.svg")
@@ -239,15 +240,16 @@ class EditorToolbar(QWidget):
             icon_layout.addWidget(btn)
 
         icon = self._themed_icon("distribute_spacing_v.svg")
-        btn = _make_icon_btn(icon, "editor_dist_vertical_spacing", "垂直间距分布")
+        btn = _make_icon_btn(icon, "editor_dist_vertical_spacing", self._t("Distribute Vertical Spacing"))
         btn.clicked.connect(lambda: self._on_dist_spacing("vertical"))
         self._dist_v_btn = btn
         icon_layout.addWidget(btn)
 
         # ── 第 2 组: 顶对齐 / 垂直居中 / 底对齐 / 水平间距分布 ──
         group2 = [
-            ("top", "顶对齐"), ("vertical_center", "垂直居中"),
-            ("bottom", "底对齐"),
+            ("top", self._t("Align Top")),
+            ("vertical_center", self._t("Align Vertical Center")),
+            ("bottom", self._t("Align Bottom")),
         ]
         for mode, tip in group2:
             icon = self._themed_icon(f"align_{mode}.svg")
@@ -257,7 +259,7 @@ class EditorToolbar(QWidget):
             icon_layout.addWidget(btn)
 
         icon = self._themed_icon("distribute_spacing_h.svg")
-        btn = _make_icon_btn(icon, "editor_dist_horizontal_spacing", "水平间距分布")
+        btn = _make_icon_btn(icon, "editor_dist_horizontal_spacing", self._t("Distribute Horizontal Spacing"))
         btn.clicked.connect(lambda: self._on_dist_spacing("horizontal"))
         self._dist_h_btn = btn
         icon_layout.addWidget(btn)
@@ -276,10 +278,10 @@ class EditorToolbar(QWidget):
         """切换对齐参照模式：选区 ↔ 画布。同时更新按钮启用状态。"""
         if self._align_ref == "selection":
             self._align_ref = "canvas"
-            self.align_ref_button.setText("画布")
+            self.align_ref_button.setText(self._t("Canvas"))
         else:
             self._align_ref = "selection"
-            self.align_ref_button.setText("选区")
+            self.align_ref_button.setText(self._t("Selection"))
         self.update_align_distribute_buttons(self._last_selection_count)
 
     def get_align_reference(self) -> str:
