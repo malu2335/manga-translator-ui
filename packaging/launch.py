@@ -751,6 +751,20 @@ def detect_amd_gfx_version(gpu_name):
             'name': 'RDNA 4 (RX 9060/9070 系列)',
             'has_torch': True
         },
+
+        # RDNA 3 APU 核显 - 官方不支持但可越狱加速
+        'gfx1103': {
+            'keywords': ['780M', '760M', '740M'],
+            'name': 'RDNA 3 APU (Radeon 780M / 760M / 740M) - 越狱加速',
+            'has_torch': False
+        },
+
+        # RDNA 3.5 APU 核显 - 官方不支持但可越狱加速
+        'gfx1150': {
+            'keywords': ['890M', '880M', '860M'],
+            'name': 'RDNA 3.5 APU (Radeon 890M / 880M / 860M) - 越狱加速',
+            'has_torch': False
+        },
         
         # 以下架构不支持 torch（已验证）
         # RDNA 2 架构 (RX 6000 系列) - 不支持
@@ -1449,6 +1463,27 @@ except:
     else:
         print(f'依赖已满足 ✓')
     
+    # 自动设置 AMD APU 越狱环境变量 (HSA Override)
+    if use_amd_pytorch:
+        target_gfx = amd_gfx_version
+        if not target_gfx and gpu_name:
+            name_upper = gpu_name.upper()
+            if any(kw in name_upper for kw in ['780M', '760M', '740M']):
+                target_gfx = 'gfx1103'
+            elif any(kw in name_upper for kw in ['890M', '880M', '860M']):
+                target_gfx = 'gfx1150'
+                
+        if target_gfx in ['gfx1103', 'gfx1150']:
+            print('\n[INFO] 检测到 AMD APU 核显 (780M/890M等)')
+            print('       正在自动注入架构越狱环境变量: HSA_OVERRIDE_GFX_VERSION=11.0.0 以启用核显加速...')
+            print('       [提示] 核显显存优化建议:')
+            print('              由于 AMD 核显共享内存机制，若您的 BIOS 预分配显存过低（如 512MB），')
+            print('              运行本地模型时极易遭遇 "Out of Memory" 报错或卡顿。')
+            print('              💡 建议：进入您的电脑 BIOS 或品牌控制软件，')
+            print('              将 "UMA Frame Buffer Size" (预分配显存) 修改为 4G、8G 或更高，')
+            print('              以获得最稳定、最流畅的核显加速体验！\n')
+            os.environ['HSA_OVERRIDE_GFX_VERSION'] = '11.0.0'
+
     # 返回 AMD PyTorch 相关信息
     return use_amd_pytorch, amd_gfx_version
 
