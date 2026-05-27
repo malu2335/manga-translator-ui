@@ -154,8 +154,52 @@ class EditorControllerDocumentService:
         if not source_path:
             source_path = resolve_original_image_path(image_path)
 
-        display_image_path = find_work_image_path(source_path) or source_path
+        work_image_path = find_work_image_path(source_path)
+        if work_image_path and self._is_editor_base_stale(source_path):
+            self._delete_stale_editor_base(work_image_path)
+            work_image_path = None
+
+        display_image_path = work_image_path or source_path
         return os.path.normpath(source_path), os.path.normpath(display_image_path)
+
+    def _is_editor_base_stale(self, source_path: str) -> bool:
+        """editor_base 只在最近一次运行真的做了超分或上色时才有意义；
+        否则视为过期残留，避免编辑器加载到与当前 JSON 不匹配的旧底图。"""
+        import json as _json
+
+        json_path = find_json_path(source_path)
+        if not json_path:
+            # 没有 JSON 可参考 → 无法证明 editor_base 有效，按过期处理
+            return True
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+        except Exception as e:
+            self.logger.warning(f"Failed to read JSON for editor_base staleness check: {e}")
+            return False
+
+        image_data = None
+        if isinstance(data, dict):
+            key = os.path.abspath(source_path)
+            image_data = data.get(key)
+            if image_data is None and data:
+                image_data = next(iter(data.values()))
+        if not isinstance(image_data, dict):
+            return True
+
+        has_upscale = bool(image_data.get("upscale_ratio"))
+        colorizer = image_data.get("colorizer")
+        has_colorizer = bool(colorizer) and str(colorizer).lower() != "none"
+        return not (has_upscale or has_colorizer)
+
+    def _delete_stale_editor_base(self, work_image_path: str) -> None:
+        try:
+            os.remove(work_image_path)
+            self.logger.info(f"Removed stale editor_base image: {work_image_path}")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            self.logger.warning(f"Failed to remove stale editor_base image {work_image_path}: {e}")
 
     def load_image_and_regions(self, image_path: str) -> None:
         if self.controller.export_service.has_changes_since_last_export():
