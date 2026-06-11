@@ -17,8 +17,8 @@ logger = get_logger('mask_refinement')
 
 # 气泡 mask 向内收缩像素，避免气泡边框被修复模型擦除
 BUBBLE_MASK_ERODE_PX = 3
-# line 最小外接矩形外扩像素（保护区）
-LINE_MIN_RECT_PROTECT_EXPAND_PX = 20
+# line 最小外接矩形保护区外扩像素；0 表示只保护原始外接矩形内
+LINE_MIN_RECT_PROTECT_EXPAND_PX = 0
 
 
 def _erode_bubble_mask(bubble_mask: np.ndarray) -> np.ndarray:
