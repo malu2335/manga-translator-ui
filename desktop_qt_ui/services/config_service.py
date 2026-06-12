@@ -20,6 +20,11 @@ from manga_translator.custom_api_params import (
 )
 from manga_translator.ocr.prompt_loader import ensure_ai_ocr_prompt_file
 from manga_translator.rendering.prompt_loader import ensure_ai_renderer_prompt_file
+from manga_translator.api_key_rotation import (
+    env_has_any_indexed_value,
+    get_rotation_env_keys,
+    get_rotation_slot_count,
+)
 from manga_translator.utils.openai_compat import is_openai_api_key_optional
 
 PRESET_SPECIAL_ENV_VARS = [
@@ -41,6 +46,17 @@ PRESET_SPECIAL_ENV_VARS = [
     "RENDER_GEMINI_API_KEY",
     "RENDER_GEMINI_MODEL",
     "RENDER_GEMINI_API_BASE",
+]
+
+API_ROTATION_ENV_GROUPS = [
+    ("OPENAI_API_KEY", "OPENAI_API_BASE", "OPENAI_MODEL"),
+    ("GEMINI_API_KEY", "GEMINI_API_BASE", "GEMINI_MODEL"),
+    ("OCR_OPENAI_API_KEY", "OCR_OPENAI_API_BASE", "OCR_OPENAI_MODEL"),
+    ("OCR_GEMINI_API_KEY", "OCR_GEMINI_API_BASE", "OCR_GEMINI_MODEL"),
+    ("COLOR_OPENAI_API_KEY", "COLOR_OPENAI_API_BASE", "COLOR_OPENAI_MODEL"),
+    ("COLOR_GEMINI_API_KEY", "COLOR_GEMINI_API_BASE", "COLOR_GEMINI_MODEL"),
+    ("RENDER_OPENAI_API_KEY", "RENDER_OPENAI_API_BASE", "RENDER_OPENAI_MODEL"),
+    ("RENDER_GEMINI_API_KEY", "RENDER_GEMINI_API_BASE", "RENDER_GEMINI_MODEL"),
 ]
 
 RUNTIME_API_REQUIREMENTS = {
@@ -224,12 +240,22 @@ class ConfigService(QObject):
                 seen.add(key)
                 env_keys.append(key)
 
+        current_env_vars = self.load_env_vars()
+        for api_key_env, api_base_env, model_env in API_ROTATION_ENV_GROUPS:
+            slots = get_rotation_slot_count(
+                current_env_vars,
+                (api_key_env, api_base_env, model_env),
+            )
+            for key in get_rotation_env_keys(api_key_env, api_base_env, model_env, slots=slots):
+                if key not in seen:
+                    seen.add(key)
+                    env_keys.append(key)
+
         return env_keys
 
     @staticmethod
     def _has_env_value(env_vars: Dict[str, str], key: str) -> bool:
-        value = env_vars.get(key, "")
-        return bool(str(value or "").strip())
+        return env_has_any_indexed_value(env_vars, key)
 
     def get_missing_runtime_api_requirements(
         self,

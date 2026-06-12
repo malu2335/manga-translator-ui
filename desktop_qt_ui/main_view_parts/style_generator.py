@@ -68,6 +68,17 @@ def generate_main_view_style(theme: str = "dark") -> str:
             font-weight: 700;
             padding: 8px 6px 2px 6px;
         }}
+        #sidebar_api_status {{
+            color: {c["text_secondary"]};
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 6px 8px 6px;
+            line-height: 1.25;
+        }}
+        #sidebar_api_status_scroll {{
+            background: transparent;
+            border: none;
+        }}
         #sidebar_panel QPushButton[navButton="true"],
         #sidebar_panel QPushButton[navActionButton="true"] {{
             background: transparent;

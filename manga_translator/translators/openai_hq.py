@@ -9,6 +9,8 @@ from typing import Any, Dict, List
 import openai
 from PIL import Image
 
+from ..api_key_rotation import APIRotationExhaustedError, run_with_api_candidates
+from ..runtime_api_resolver import resolve_runtime_api_config
 from .common import (
     VALID_LANGUAGES,
     AsyncOpenAICurlCffi,
@@ -104,6 +106,8 @@ class OpenAIHighQualityTranslator(CommonTranslator):
         self.api_key = os.getenv('OPENAI_API_KEY', OPENAI_API_KEY)
         self.base_url = os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1')
         self.model = os.getenv('OPENAI_MODEL', "gpt-4o")
+        self._runtime_api_settings = None
+        self._refresh_runtime_api_settings(None)
         self.max_tokens = None  # 不限制，使用模型默认最大值
         self._MAX_REQUESTS_PER_MINUTE = 0  # 默认无限制
         # 使用全局时间戳,跨实例共享
@@ -154,12 +158,90 @@ class OpenAIHighQualityTranslator(CommonTranslator):
         if user_api_model:
             self.model = user_api_model
             self.logger.info(f"[UserAPIKey] Using user-provided model: {user_api_model}")
-        
+
+        if user_api_key or user_api_base or user_api_model:
+            self._runtime_api_settings = None
+        else:
+            old_signature = (self.api_key or "", self.base_url, self.model)
+            self._refresh_runtime_api_settings(args)
+            if (self.api_key or "", self.base_url, self.model) != old_signature:
+                need_rebuild_client = True
+
         # 如果 API Key 或 Base URL 变化，重建客户端
         if need_rebuild_client:
             self.client = None
             self._setup_client()
-    
+
+    def _refresh_runtime_api_settings(self, config):
+        settings = resolve_runtime_api_config(
+            config,
+            feature="translator",
+            provider="openai",
+            api_key_env="OPENAI_API_KEY",
+            api_base_env="OPENAI_API_BASE",
+            model_env="OPENAI_MODEL",
+            fallback_api_key_env=None,
+            fallback_api_base_env=None,
+            fallback_model_env=None,
+            default_api_base="https://api.openai.com/v1",
+            default_model="gpt-4o",
+            allow_empty_local_api_key=True,
+        )
+        self._runtime_api_settings = settings
+        if settings.api_key:
+            self.api_key = settings.api_key
+            self.base_url = settings.base_url
+            self.model = settings.model_name
+        return settings
+
+    async def _close_current_client(self):
+        if not self.client:
+            return
+        try:
+            await self.client.close()
+        except Exception:
+            pass
+        finally:
+            self.client = None
+
+    async def _reset_client_for_candidate(self, endpoint, error: Exception):
+        del endpoint, error
+        await self._close_current_client()
+
+    def _apply_api_endpoint(self, endpoint):
+        signature = (endpoint.api_key or "", endpoint.base_url, endpoint.model_name)
+        if signature == (self.api_key or "", self.base_url, self.model) and self.client:
+            return
+        self.api_key = endpoint.api_key
+        self.base_url = endpoint.base_url
+        self.model = endpoint.model_name
+        if self.model not in OpenAIHighQualityTranslator._GLOBAL_LAST_REQUEST_TS:
+            OpenAIHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self.model] = 0
+        self._last_request_ts_key = self.model
+        self._setup_client(force_recreate=True)
+
+    async def _run_with_api_rotation(self, operation, operation_name: str):
+        settings = self._runtime_api_settings
+        if not settings or not settings.candidates:
+            if not self.client:
+                self._setup_client()
+            return await operation()
+
+        async def _with_endpoint(endpoint):
+            self._apply_api_endpoint(endpoint)
+            return await operation()
+
+        return await run_with_api_candidates(
+            endpoints=settings.candidates,
+            strategy=settings.strategy,
+            operation=_with_endpoint,
+            provider_name="OpenAI HQ",
+            operation_name=operation_name,
+            logger=self.logger,
+            retry_attempts=self.attempts,
+            on_candidate_error=self._reset_client_for_candidate,
+        )
+
     def _setup_client(self, force_recreate: bool = False):
         """设置OpenAI客户端
 
@@ -370,37 +452,61 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 streamed_finish_reason = None
                 response = None
                 use_streaming = self._is_streaming_enabled(ctx)
-                if use_streaming:
-                    try:
-                        self._reset_stream_json_preview()
-                        stream_params = dict(api_params)
-                        stream_params["stream"] = True
-                        streamed_text, streamed_finish_reason = await self._run_unified_stream_transport(
-                            create_stream=lambda: self.client.chat.completions.create(**stream_params),
-                            extract_text=_extract_openai_stream_text,
-                            extract_finish_reason=_extract_openai_stream_finish_reason,
-                            on_chunk=_on_stream_chunk,
-                            on_cancel=self._abort_inflight_request,
-                            poll_interval=0.2,
-                            sync_iter_in_thread=False,
-                        )
-                        self._finish_stream_inline()
-                    except Exception as stream_error:
-                        self._finish_stream_inline()
-                        self.logger.warning(f"流式请求不可用，已回退普通请求: {stream_error}")
+
+                async def _send_openai_request():
+                    nonlocal response, streamed_text, streamed_finish_reason
+                    response = None
+                    streamed_text = None
+                    streamed_finish_reason = None
+                    request_params = dict(api_params)
+                    request_params["model"] = self.model
+                    if use_streaming:
+                        try:
+                            self._reset_stream_json_preview()
+                            stream_params = dict(request_params)
+                            stream_params["stream"] = True
+                            streamed_text, streamed_finish_reason = await self._run_unified_stream_transport(
+                                create_stream=lambda: self.client.chat.completions.create(**stream_params),
+                                extract_text=_extract_openai_stream_text,
+                                extract_finish_reason=_extract_openai_stream_finish_reason,
+                                on_chunk=_on_stream_chunk,
+                                on_cancel=self._abort_inflight_request,
+                                poll_interval=0.2,
+                                sync_iter_in_thread=False,
+                            )
+                            self._finish_stream_inline()
+                        except Exception as stream_error:
+                            self._finish_stream_inline()
+                            streamed_text = None
+                            streamed_finish_reason = None
+                            self.logger.warning(f"流式请求不可用，已回退普通请求: {stream_error}")
+                            response = await self._await_with_cancel_polling(
+                                self.client.chat.completions.create(**request_params),
+                                poll_interval=0.2,
+                                on_cancel=self._abort_inflight_request,
+                            )
+                    else:
+                        self.logger.info("已禁用流式传输，使用普通请求。")
                         response = await self._await_with_cancel_polling(
-                            self.client.chat.completions.create(**api_params),
+                            self.client.chat.completions.create(**request_params),
                             poll_interval=0.2,
                             on_cancel=self._abort_inflight_request,
                         )
-                else:
-                    self.logger.info("已禁用流式传输，使用普通请求。")
-                    response = await self._await_with_cancel_polling(
-                        self.client.chat.completions.create(**api_params),
-                        poll_interval=0.2,
-                        on_cancel=self._abort_inflight_request,
-                    )
-                 
+
+                    if streamed_text is not None:
+                        if not streamed_text.strip():
+                            raise RuntimeError("OpenAI HQ returned empty content")
+                    else:
+                        validate_openai_response(response, self.logger)
+                        has_response_content = bool(
+                            getattr(response, "choices", None)
+                            and response.choices[0].message.content
+                        )
+                        if not has_response_content:
+                            raise RuntimeError("OpenAI HQ returned empty content")
+
+                await self._run_with_api_rotation(_send_openai_request, "translation request")
+
                 # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
                 if self._MAX_REQUESTS_PER_MINUTE > 0:
                     OpenAIHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key] = time.time()
@@ -529,7 +635,6 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                     return translations[:len(texts)]
                 
                 # 如果不成功，则记录原因并准备重试
-                attempt += 1
                 log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
                 
                 # finish_reason 已在上面获取，根据不同情况处理
@@ -563,6 +668,8 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 self._setup_client(force_recreate=True)
                 await self._sleep_with_cancel_polling(1)
 
+            except APIRotationExhaustedError:
+                raise
             except openai.BadRequestError as e:
                 # 专门处理400错误，检查是否是多模态不支持问题
                 error_message = str(e)
@@ -579,7 +686,6 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                     raise Exception(f"模型不支持多模态输入: {self.model}") from e
                 else:
                     # 其他400错误，正常重试
-                    attempt += 1
                     log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
                     last_exception = e
                     self.logger.warning(f"OpenAI高质量翻译出错 ({log_attempt}): {e}")
@@ -594,7 +700,6 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                     await self._sleep_with_cancel_polling(1)
                     
             except Exception as e:
-                attempt += 1
                 log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
                 last_exception = e
 

@@ -17,9 +17,9 @@ from ..custom_api_params import (
     split_gemini_request_params,
 )
 from ..runtime_api_resolver import resolve_runtime_api_config
+from ..api_key_rotation import run_with_api_candidates
 from ..utils import Quadrilateral
 from ..utils.generic import AvgMeter
-from ..utils.retry import run_with_retry
 from .common import OfflineOCR
 from .prompt_loader import (
     DEFAULT_AI_OCR_PROMPT,
@@ -215,9 +215,6 @@ class BaseAPIOCR(OfflineOCR):
             custom_api_params=custom_api_params,
         )
 
-    async def _reset_client_for_retry(self, attempt_index: int, error: Exception):
-        del attempt_index, error
-
     async def _load_color_model(self, device: str):
         from .model_48px import OCR
 
@@ -344,13 +341,13 @@ class BaseAPIOCR(OfflineOCR):
         if not settings.api_key:
             raise RuntimeError(self._missing_api_key_message())
 
-        async def _do_request() -> str:
-            client = self._create_client(api_key=settings.api_key, base_url=settings.base_url)
+        async def _request_with_endpoint(endpoint) -> str:
+            client = self._create_client(api_key=endpoint.api_key, base_url=endpoint.base_url)
             try:
                 text = self._normalize_ocr_text(
                     await self._request_ocr_text(
                         client=client,
-                        model_name=settings.model_name,
+                        model_name=endpoint.model_name,
                         img=img,
                         prompt_text=prompt_text,
                         custom_api_params=custom_api_params,
@@ -362,13 +359,18 @@ class BaseAPIOCR(OfflineOCR):
             finally:
                 await self._close_client(client)
 
-        return await run_with_retry(
-            operation=_do_request,
-            runtime_config=runtime_config,
-            provider_name=self.PROVIDER_NAME,
-            operation_name="OCR request",
-            logger=self.logger,
-        )
+        async def _do_request() -> str:
+            return await run_with_api_candidates(
+                endpoints=settings.candidates,
+                strategy=settings.strategy,
+                operation=_request_with_endpoint,
+                provider_name=self.PROVIDER_NAME,
+                operation_name="OCR request",
+                logger=self.logger,
+                runtime_config=runtime_config,
+            )
+
+        return await _do_request()
 
     async def _infer(
         self,
@@ -453,8 +455,8 @@ class ModelOpenAIOCR(BaseAPIOCR):
     API_KEY_ENV = "OCR_OPENAI_API_KEY"
     API_BASE_ENV = "OCR_OPENAI_API_BASE"
     MODEL_ENV = "OCR_OPENAI_MODEL"
-    FALLBACK_API_KEY_ENV = ""
-    FALLBACK_API_BASE_ENV = ""
+    FALLBACK_API_KEY_ENV = "OPENAI_API_KEY"
+    FALLBACK_API_BASE_ENV = "OPENAI_API_BASE"
     FALLBACK_MODEL_ENV = ""
     DEFAULT_API_BASE = "https://api.openai.com/v1"
     DEFAULT_MODEL = "gpt-4o"
@@ -535,8 +537,8 @@ class ModelGeminiOCR(BaseAPIOCR):
     API_KEY_ENV = "OCR_GEMINI_API_KEY"
     API_BASE_ENV = "OCR_GEMINI_API_BASE"
     MODEL_ENV = "OCR_GEMINI_MODEL"
-    FALLBACK_API_KEY_ENV = ""
-    FALLBACK_API_BASE_ENV = ""
+    FALLBACK_API_KEY_ENV = "GEMINI_API_KEY"
+    FALLBACK_API_BASE_ENV = "GEMINI_API_BASE"
     FALLBACK_MODEL_ENV = ""
     DEFAULT_API_BASE = "https://generativelanguage.googleapis.com"
     DEFAULT_MODEL = "gemini-1.5-flash"

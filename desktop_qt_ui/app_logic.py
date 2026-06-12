@@ -187,7 +187,11 @@ class MainAppLogic(QObject):
                     continue
                 widget = pair[1]
                 try:
-                    env_vars[key] = widget.text().strip()
+                    if hasattr(widget, "currentData"):
+                        data = widget.currentData()
+                        env_vars[key] = str(data if data is not None else widget.currentText()).strip()
+                    else:
+                        env_vars[key] = widget.text().strip()
                 except Exception:
                     continue
         return env_vars

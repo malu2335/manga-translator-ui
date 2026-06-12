@@ -40,6 +40,7 @@ class MainView(QWidget):
     _create_param_widgets = main_view_dynamic._create_param_widgets
 
     _create_left_sidebar = layout_parts.create_left_sidebar
+    _refresh_api_status_sidebar = layout_parts.refresh_api_status_sidebar
     _create_translation_page = layout_parts.create_translation_page
     _create_settings_page = layout_parts.create_settings_page
     _create_env_page = layout_parts.create_env_page
@@ -76,10 +77,16 @@ class MainView(QWidget):
     reset_progress = main_view_runtime.reset_progress
 
     _create_env_widgets = main_view_env.create_env_widgets
+    _create_api_rotation_widgets = main_view_env.create_api_rotation_widgets
+    _refresh_env_api_groups = main_view_dynamic._refresh_env_api_groups
     _get_env_default_placeholder = main_view_env.get_env_default_placeholder
     _debounced_save_env_var = main_view_env.debounced_save_env_var
     _on_open_custom_api_params_file = main_view_env.on_open_custom_api_params_file
+    _refresh_api_feature_selectors = main_view_env.refresh_api_feature_selectors
+    _on_api_feature_combo_changed = main_view_env.on_api_feature_combo_changed
+    _create_api_feature_selector_row = main_view_env.create_api_feature_selector_row
     _on_test_api_clicked = main_view_env.on_test_api_clicked
+    _on_test_current_api_section_clicked = main_view_env.on_test_current_api_section_clicked
     _on_get_models_clicked = main_view_env.on_get_models_clicked
     _refresh_preset_list = main_view_env.refresh_preset_list
     _on_add_preset_clicked = main_view_env.on_add_preset_clicked
@@ -140,6 +147,11 @@ class MainView(QWidget):
         self.controller.state_manager.current_config_changed.connect(self.update_start_button_text)
         QTimer.singleShot(100, self.update_start_button_text) # Set initial text
         QTimer.singleShot(100, self._sync_workflow_mode_from_config) # Sync workflow mode dropdown
+        self._api_status_timer = QTimer(self)
+        self._api_status_timer.setInterval(2000)
+        self._api_status_timer.timeout.connect(self._refresh_api_status_sidebar)
+        self._api_status_timer.start()
+        QTimer.singleShot(200, self._refresh_api_status_sidebar)
         self._apply_reference_ui_style()
     
     def _t(self, key: str, **kwargs) -> str:
@@ -196,6 +208,10 @@ class MainView(QWidget):
             self.sidebar_tools_label.setText(self._t("Data Management"))
         if hasattr(self, "sidebar_editor_label"):
             self.sidebar_editor_label.setText(self._t("Editor"))
+        if hasattr(self, "sidebar_api_status_title"):
+            self.sidebar_api_status_title.setText(self._t("API Status"))
+        if hasattr(self, "sidebar_api_status_label"):
+            self._refresh_api_status_sidebar()
         if hasattr(self, "nav_translation_button"):
             self.nav_translation_button.setText(self._t("Translation Interface"))
         if hasattr(self, "nav_editor_button"):
@@ -299,6 +315,8 @@ class MainView(QWidget):
             self.env_tab_widget.setTabText(1, self._t("OCR"))
             self.env_tab_widget.setTabText(2, self._t("Colorization"))
             self.env_tab_widget.setTabText(3, self._t("Render"))
+        if hasattr(self, "_refresh_api_feature_selectors"):
+            self._refresh_api_feature_selectors()
 
         if hasattr(self, "file_list") and hasattr(self.file_list, "refresh_empty_state_text"):
             self.file_list.refresh_empty_state_text()

@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import sys
+import time
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QFontDatabase, QRawFont
@@ -32,6 +33,66 @@ from utils.wheel_filter import NoWheelComboBox as QComboBox
 from widgets.file_list_view import FileListView
 
 from main_view_parts.theme import THEME_OPTIONS, get_current_theme_colors
+from manga_translator.api_key_rotation import (
+    get_api_status_snapshot,
+    get_indexed_env_key,
+    get_rotation_slot_count,
+)
+from manga_translator.utils.openai_compat import is_openai_api_key_optional
+
+
+SIDEBAR_API_SPECS = {
+    "translator_openai": ("label_translator", "translator", "openai", "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_API_BASE", "", "", ""),
+    "translator_gemini": ("label_translator", "translator", "gemini", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_BASE", "", "", ""),
+    "ocr_openai": ("label_ocr", "ocr", "openai", "OCR_OPENAI_API_KEY", "OCR_OPENAI_MODEL", "OCR_OPENAI_API_BASE", "OPENAI_API_KEY", "", "OPENAI_API_BASE"),
+    "ocr_gemini": ("label_ocr", "ocr", "gemini", "OCR_GEMINI_API_KEY", "OCR_GEMINI_MODEL", "OCR_GEMINI_API_BASE", "GEMINI_API_KEY", "", "GEMINI_API_BASE"),
+    "color_openai": ("label_colorizer", "colorizer", "openai", "COLOR_OPENAI_API_KEY", "COLOR_OPENAI_MODEL", "COLOR_OPENAI_API_BASE", "OPENAI_API_KEY", "", "OPENAI_API_BASE"),
+    "color_gemini": ("label_colorizer", "colorizer", "gemini", "COLOR_GEMINI_API_KEY", "COLOR_GEMINI_MODEL", "COLOR_GEMINI_API_BASE", "GEMINI_API_KEY", "", "GEMINI_API_BASE"),
+    "render_openai": ("label_renderer", "renderer", "openai", "RENDER_OPENAI_API_KEY", "RENDER_OPENAI_MODEL", "RENDER_OPENAI_API_BASE", "OPENAI_API_KEY", "", "OPENAI_API_BASE"),
+    "render_gemini": ("label_renderer", "renderer", "gemini", "RENDER_GEMINI_API_KEY", "RENDER_GEMINI_MODEL", "RENDER_GEMINI_API_BASE", "GEMINI_API_KEY", "", "GEMINI_API_BASE"),
+}
+
+
+def _cfg_value(value) -> str:
+    return str(getattr(value, "value", value) or "").strip()
+
+
+def _active_sidebar_api_specs(config) -> list[tuple]:
+    keys: list[str] = []
+    translator = _cfg_value(getattr(config.translator, "translator", ""))
+    if translator in {"openai", "openai_hq"}:
+        keys.append("translator_openai")
+    elif translator in {"gemini", "gemini_hq"}:
+        keys.append("translator_gemini")
+
+    ocr_values = [_cfg_value(getattr(config.ocr, "ocr", ""))]
+    if bool(getattr(config.ocr, "use_hybrid_ocr", False)):
+        ocr_values.append(_cfg_value(getattr(config.ocr, "secondary_ocr", "")))
+    if "openai_ocr" in ocr_values:
+        keys.append("ocr_openai")
+    if "gemini_ocr" in ocr_values:
+        keys.append("ocr_gemini")
+
+    colorizer = _cfg_value(getattr(config.colorizer, "colorizer", ""))
+    if colorizer == "openai_colorizer":
+        keys.append("color_openai")
+    elif colorizer == "gemini_colorizer":
+        keys.append("color_gemini")
+
+    renderer = _cfg_value(getattr(config.render, "renderer", ""))
+    if renderer == "openai_renderer":
+        keys.append("render_openai")
+    elif renderer == "gemini_renderer":
+        keys.append("render_gemini")
+
+    return [SIDEBAR_API_SPECS[key] for key in keys]
+
+
+def _sidebar_provider_label(provider: str) -> str:
+    return {
+        "openai": "OpenAI",
+        "gemini": "Gemini",
+    }.get(str(provider or "").lower(), str(provider or ""))
 
 def _resolve_settings_tab_layout_file() -> str:
     """打包/开发环境通用地定位 settings_tab_layout.json。
@@ -274,6 +335,25 @@ def create_left_sidebar(self) -> QWidget:
 
     sidebar_layout.addStretch()
 
+    self.sidebar_api_status_title = QLabel(self._t("API Status"))
+    self.sidebar_api_status_title.setObjectName("sidebar_group_label")
+    sidebar_layout.addWidget(self.sidebar_api_status_title)
+
+    self.sidebar_api_status_scroll = QScrollArea()
+    self.sidebar_api_status_scroll.setObjectName("sidebar_api_status_scroll")
+    self.sidebar_api_status_scroll.setWidgetResizable(True)
+    self.sidebar_api_status_scroll.setFrameShape(QFrame.Shape.NoFrame)
+    self.sidebar_api_status_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    self.sidebar_api_status_scroll.setMinimumHeight(42)
+    self.sidebar_api_status_scroll.setMaximumHeight(140)
+
+    self.sidebar_api_status_label = QLabel("")
+    self.sidebar_api_status_label.setObjectName("sidebar_api_status")
+    self.sidebar_api_status_label.setWordWrap(True)
+    self.sidebar_api_status_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    self.sidebar_api_status_scroll.setWidget(self.sidebar_api_status_label)
+    sidebar_layout.addWidget(self.sidebar_api_status_scroll)
+
     self.sidebar_divider_bottom = QFrame()
     self.sidebar_divider_bottom.setFrameShape(QFrame.Shape.HLine)
     self.sidebar_divider_bottom.setObjectName("sidebar_divider")
@@ -330,6 +410,119 @@ def create_left_sidebar(self) -> QWidget:
 
     self.nav_translation_button.setChecked(True)
     return sidebar
+
+
+def refresh_api_status_sidebar(self):
+    if not hasattr(self, "sidebar_api_status_label"):
+        return
+    try:
+        config = self.controller.config_service.get_config()
+        env_vars = self.controller.config_service.load_env_vars()
+        status_items = get_api_status_snapshot()
+        active_specs = _active_sidebar_api_specs(config)
+    except Exception:
+        self.sidebar_api_status_label.setText(self._t("API status unavailable"))
+        return
+
+    if not active_specs:
+        self.sidebar_api_status_label.setText(self._t("No API selected"))
+        return
+
+    def _latest_status_by_slot(feature: str, provider: str) -> dict[int, dict]:
+        latest: dict[int, dict] = {}
+        for item in status_items:
+            if item.get("feature") != feature or item.get("provider") != provider:
+                continue
+            try:
+                slot = int(item.get("slot") or 0)
+            except (TypeError, ValueError):
+                continue
+            if slot <= 0:
+                continue
+            previous = latest.get(slot)
+            if not previous or float(item.get("updated_at") or 0) >= float(previous.get("updated_at") or 0):
+                latest[slot] = item
+        return latest
+
+    def _format_slot_list(slots: list[int]) -> str:
+        return ", ".join(str(slot) for slot in slots)
+
+    lines: list[str] = []
+    for (
+        label_key,
+        feature,
+        provider,
+        api_key_env,
+        model_env,
+        api_base_env,
+        fallback_api_key_env,
+        fallback_model_env,
+        fallback_api_base_env,
+    ) in active_specs:
+        label = f"{self._t(label_key)} ({_sidebar_provider_label(provider)})"
+        slot_count = get_rotation_slot_count(
+            env_vars,
+            (
+                api_key_env,
+                model_env,
+                api_base_env,
+                fallback_api_key_env,
+                fallback_model_env,
+                fallback_api_base_env,
+            ),
+        )
+        configured_slots: list[int] = []
+        for index in range(1, slot_count + 1):
+            key = get_indexed_env_key(api_key_env, index)
+            fallback_key = get_indexed_env_key(fallback_api_key_env, index)
+            base_key = get_indexed_env_key(api_base_env, index)
+            fallback_base_key = get_indexed_env_key(fallback_api_base_env, index)
+            has_api_key = bool(
+                str(env_vars.get(key, "") or "").strip()
+                or str(env_vars.get(fallback_key, "") or "").strip()
+            )
+            base_value = str(env_vars.get(base_key, "") or env_vars.get(fallback_base_key, "") or "").strip()
+            if has_api_key or (provider == "openai" and is_openai_api_key_optional("", base_value)):
+                configured_slots.append(index)
+
+        latest_by_slot = _latest_status_by_slot(feature, provider)
+        failed_slots: list[int] = []
+        unavailable_slots: list[int] = []
+        cooldown_slots: list[int] = []
+        for slot in configured_slots:
+            item = latest_by_slot.get(slot)
+            if not item:
+                continue
+            state = item.get("state")
+            if state == "unavailable":
+                unavailable_slots.append(slot)
+            elif state == "cooldown" and float(item.get("cooldown_until") or 0) > time.time():
+                cooldown_slots.append(slot)
+            elif state == "failed":
+                failed_slots.append(slot)
+
+        details: list[str] = []
+        if failed_slots:
+            details.append(self._t("API status detail failed", slots=_format_slot_list(failed_slots)))
+        if unavailable_slots:
+            details.append(self._t("API status detail unavailable", slots=_format_slot_list(unavailable_slots)))
+        if cooldown_slots:
+            details.append(self._t("API status detail cooldown", slots=_format_slot_list(cooldown_slots)))
+
+        if details:
+            lines.append(
+                self._t(
+                    "API status line with details",
+                    label=label,
+                    configured=len(configured_slots),
+                    details=" / ".join(details),
+                )
+            )
+    if not lines:
+        self.sidebar_api_status_label.setText(self._t("No unavailable API"))
+        return
+
+    self.sidebar_api_status_label.setText("\n".join(lines))
 
 
 def create_translation_page(self) -> QWidget:

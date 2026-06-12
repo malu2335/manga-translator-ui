@@ -5,7 +5,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QFormLayout,
     QFrame,
-    QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -18,6 +18,178 @@ from utils.resource_helper import resource_path
 from utils.wheel_filter import NoWheelComboBox as QComboBox
 from widgets.hover_hint import set_hover_hint
 from widgets.toggle_switch import ToggleSwitch
+
+
+API_GROUP_SPECS = {
+    "translator_openai": ("OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_API_BASE"),
+    "translator_gemini": ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_BASE"),
+    "ocr_openai": ("OCR_OPENAI_API_KEY", "OCR_OPENAI_MODEL", "OCR_OPENAI_API_BASE"),
+    "ocr_gemini": ("OCR_GEMINI_API_KEY", "OCR_GEMINI_MODEL", "OCR_GEMINI_API_BASE"),
+    "color_openai": ("COLOR_OPENAI_API_KEY", "COLOR_OPENAI_MODEL", "COLOR_OPENAI_API_BASE"),
+    "color_gemini": ("COLOR_GEMINI_API_KEY", "COLOR_GEMINI_MODEL", "COLOR_GEMINI_API_BASE"),
+    "render_openai": ("RENDER_OPENAI_API_KEY", "RENDER_OPENAI_MODEL", "RENDER_OPENAI_API_BASE"),
+    "render_gemini": ("RENDER_GEMINI_API_KEY", "RENDER_GEMINI_MODEL", "RENDER_GEMINI_API_BASE"),
+}
+
+
+def _normalize_selected_value(value) -> str:
+    raw = getattr(value, "value", value)
+    return str(raw or "").strip()
+
+
+def _selected_api_group_keys(config) -> dict[str, list[str]]:
+    translator_value = _normalize_selected_value(getattr(config.translator, "translator", ""))
+    ocr_value = _normalize_selected_value(getattr(config.ocr, "ocr", ""))
+    secondary_ocr_value = _normalize_selected_value(getattr(config.ocr, "secondary_ocr", ""))
+    colorizer_value = _normalize_selected_value(getattr(config.colorizer, "colorizer", ""))
+    renderer_value = _normalize_selected_value(getattr(config.render, "renderer", ""))
+
+    result = {
+        "translation": [],
+        "ocr": [],
+        "color": [],
+        "render": [],
+    }
+
+    if translator_value in {"openai", "openai_hq"}:
+        result["translation"].append("translator_openai")
+    elif translator_value in {"gemini", "gemini_hq"}:
+        result["translation"].append("translator_gemini")
+
+    selected_ocr_values = [ocr_value]
+    if bool(getattr(config.ocr, "use_hybrid_ocr", False)):
+        selected_ocr_values.append(secondary_ocr_value)
+    if "openai_ocr" in selected_ocr_values:
+        result["ocr"].append("ocr_openai")
+    if "gemini_ocr" in selected_ocr_values:
+        result["ocr"].append("ocr_gemini")
+
+    if colorizer_value == "openai_colorizer":
+        result["color"].append("color_openai")
+    elif colorizer_value == "gemini_colorizer":
+        result["color"].append("color_gemini")
+
+    if renderer_value == "openai_renderer":
+        result["render"].append("render_openai")
+    elif renderer_value == "gemini_renderer":
+        result["render"].append("render_gemini")
+
+    return result
+
+
+def _add_empty_api_hint(self, container_layout, translation_key: str):
+    hint = QLabel(self._t(translation_key))
+    hint.setObjectName("page_subtitle")
+    hint.setWordWrap(True)
+    container_layout.addWidget(hint)
+
+
+def _add_api_section_panel(
+    self,
+    container_layout,
+    section_key: str,
+    group_keys: list[str],
+    current_env_values: dict,
+    empty_hint_key: str,
+):
+    env_input_widget = QWidget()
+    self.env_layout = QGridLayout(env_input_widget)
+    self.env_layout.setColumnStretch(1, 1)
+    self.env_layout.setColumnStretch(2, 0)
+    self.env_layout.setHorizontalSpacing(12)
+    self.env_layout.setVerticalSpacing(10)
+    self.env_layout.setContentsMargins(0, 0, 0, 0)
+
+    self._create_api_feature_selector_row(section_key)
+
+    if group_keys:
+        for group_key in group_keys:
+            api_key_env, model_env, api_base_env = API_GROUP_SPECS[group_key]
+            self._create_api_rotation_widgets(
+                api_key_env=api_key_env,
+                model_env=model_env,
+                api_base_env=api_base_env,
+                current_values=current_env_values,
+            )
+    else:
+        hint = QLabel(self._t(empty_hint_key))
+        hint.setObjectName("page_subtitle")
+        hint.setWordWrap(True)
+        self.env_layout.addWidget(hint, self.env_layout.rowCount(), 0, 1, 3)
+
+    container_layout.addWidget(env_input_widget)
+
+
+def _clear_layout_widgets(layout):
+    while layout.count():
+        child = layout.takeAt(0)
+        if child.widget():
+            child.widget().deleteLater()
+
+
+def _refresh_env_api_groups(self):
+    if not all(
+        hasattr(self, attr)
+        for attr in (
+            "env_group_container_layout",
+            "ocr_container_layout",
+            "color_container_layout",
+            "render_container_layout",
+        )
+    ):
+        return
+
+    self.env_widgets.clear()
+    for layout in [
+        self.env_group_container_layout,
+        self.ocr_container_layout,
+        self.color_container_layout,
+        self.render_container_layout,
+    ]:
+        _clear_layout_widgets(layout)
+
+    active_api_groups = _selected_api_group_keys(self.controller.config_service.get_config())
+    current_env_values = self.controller.config_service.load_env_vars()
+
+    _add_api_section_panel(
+        self,
+        self.env_group_container_layout,
+        "translation",
+        active_api_groups["translation"],
+        current_env_values,
+        "No translation API required",
+    )
+    self.env_group_container_layout.addStretch()
+
+    _add_api_section_panel(
+        self,
+        self.ocr_container_layout,
+        "ocr",
+        active_api_groups["ocr"],
+        current_env_values,
+        "No OCR API required",
+    )
+    self.ocr_container_layout.addStretch()
+
+    _add_api_section_panel(
+        self,
+        self.color_container_layout,
+        "color",
+        active_api_groups["color"],
+        current_env_values,
+        "No colorization API required",
+    )
+    self.color_container_layout.addStretch()
+
+    _add_api_section_panel(
+        self,
+        self.render_container_layout,
+        "render",
+        active_api_groups["render"],
+        current_env_values,
+        "No render API required",
+    )
+    self.render_container_layout.addStretch()
 
 
 def _get_setting_description(view, full_key: str) -> str:
@@ -400,10 +572,7 @@ def _finalize_settings_ui(self):
 
     # Clear containers
     for layout in [self.env_preset_layout, self.env_group_container_layout, self.ocr_container_layout, self.color_container_layout, self.render_container_layout]:
-        while layout.count():
-            child = layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        _clear_layout_widgets(layout)
                 
     # --- 全局 API Preset Toolbar ---
     preset_label = QLabel(self._t("Preset:"))
@@ -439,110 +608,8 @@ def _finalize_settings_ui(self):
     self.delete_preset_button.clicked.connect(self._on_delete_preset_clicked)
     self.preset_combo.currentTextChanged.connect(self._on_preset_changed)
     
-    # --- [Translation Tab] API Keys ---
-    self.env_widgets.clear()
-    configs = self.controller.config_service.get_translator_configs()
-    current_env_values = self.controller.config_service.load_env_vars()
-    seen_keys = set()
-    
-    from PyQt6.QtWidgets import QGridLayout
-    
-    for t_key, t_cfg in configs.items():
-        if t_key in ('none', 'original', 'copy'):
-            continue
-        all_vars = [k for k in (t_cfg.required_env_vars + t_cfg.optional_env_vars) if k not in seen_keys]
-        if not all_vars:
-            continue
-        seen_keys.update(all_vars)
-        
-        group_box = QGroupBox(t_cfg.display_name)
-        group_box.setObjectName("section_card")
-        env_main_layout = QVBoxLayout(group_box)
-        env_main_layout.setContentsMargins(16, 16, 16, 16)
-        env_main_layout.setSpacing(10)
-
-        env_input_widget = QWidget()
-        self.env_layout = QGridLayout(env_input_widget)
-        self.env_layout.setColumnStretch(1, 1)
-        self.env_layout.setColumnStretch(2, 0)
-        self.env_layout.setHorizontalSpacing(12)
-        self.env_layout.setVerticalSpacing(10)
-        self.env_layout.setContentsMargins(0, 0, 0, 0)
-        env_main_layout.addWidget(env_input_widget)
-        
-        self._create_env_widgets(all_vars, current_env_values)
-        self.env_group_container_layout.addWidget(group_box)
-        
-    self.env_group_container_layout.addStretch()
-    
-    # --- [OCR Tab] ---
-    ocr_keys = [
-        ("OpenAI", ["OCR_OPENAI_API_KEY", "OCR_OPENAI_MODEL", "OCR_OPENAI_API_BASE"]),
-        ("Gemini", ["OCR_GEMINI_API_KEY", "OCR_GEMINI_MODEL", "OCR_GEMINI_API_BASE"]),
-    ]
-    for name, keys in ocr_keys:
-        group_box = QGroupBox(name)
-        group_box.setObjectName("section_card")
-        env_main_layout = QVBoxLayout(group_box)
-        env_main_layout.setContentsMargins(16, 16, 16, 16)
-        env_main_layout.setSpacing(10)
-        env_input_widget = QWidget()
-        self.env_layout = QGridLayout(env_input_widget)
-        self.env_layout.setColumnStretch(1, 1)
-        self.env_layout.setColumnStretch(2, 0)
-        self.env_layout.setHorizontalSpacing(12)
-        self.env_layout.setVerticalSpacing(10)
-        self.env_layout.setContentsMargins(0, 0, 0, 0)
-        env_main_layout.addWidget(env_input_widget)
-        self._create_env_widgets(keys, current_env_values)
-        self.ocr_container_layout.addWidget(group_box)
-    self.ocr_container_layout.addStretch()
-    
-    # --- [Colorization Tab] ---
-    color_keys = [
-        ("OpenAI", ["COLOR_OPENAI_API_KEY", "COLOR_OPENAI_MODEL", "COLOR_OPENAI_API_BASE"]),
-        ("Gemini", ["COLOR_GEMINI_API_KEY", "COLOR_GEMINI_MODEL", "COLOR_GEMINI_API_BASE"]),
-    ]
-    for name, keys in color_keys:
-        group_box = QGroupBox(name)
-        group_box.setObjectName("section_card")
-        env_main_layout = QVBoxLayout(group_box)
-        env_main_layout.setContentsMargins(16, 16, 16, 16)
-        env_main_layout.setSpacing(10)
-        env_input_widget = QWidget()
-        self.env_layout = QGridLayout(env_input_widget)
-        self.env_layout.setColumnStretch(1, 1)
-        self.env_layout.setColumnStretch(2, 0)
-        self.env_layout.setHorizontalSpacing(12)
-        self.env_layout.setVerticalSpacing(10)
-        self.env_layout.setContentsMargins(0, 0, 0, 0)
-        env_main_layout.addWidget(env_input_widget)
-        self._create_env_widgets(keys, current_env_values)
-        self.color_container_layout.addWidget(group_box)
-    self.color_container_layout.addStretch()
-
-    # --- [Render Tab] ---
-    render_keys = [
-        ("OpenAI", ["RENDER_OPENAI_API_KEY", "RENDER_OPENAI_MODEL", "RENDER_OPENAI_API_BASE"]),
-        ("Gemini", ["RENDER_GEMINI_API_KEY", "RENDER_GEMINI_MODEL", "RENDER_GEMINI_API_BASE"]),
-    ]
-    for name, keys in render_keys:
-        group_box = QGroupBox(name)
-        group_box.setObjectName("section_card")
-        env_main_layout = QVBoxLayout(group_box)
-        env_main_layout.setContentsMargins(16, 16, 16, 16)
-        env_main_layout.setSpacing(10)
-        env_input_widget = QWidget()
-        self.env_layout = QGridLayout(env_input_widget)
-        self.env_layout.setColumnStretch(1, 1)
-        self.env_layout.setColumnStretch(2, 0)
-        self.env_layout.setHorizontalSpacing(12)
-        self.env_layout.setVerticalSpacing(10)
-        self.env_layout.setContentsMargins(0, 0, 0, 0)
-        env_main_layout.addWidget(env_input_widget)
-        self._create_env_widgets(keys, current_env_values)
-        self.render_container_layout.addWidget(group_box)
-    self.render_container_layout.addStretch()
+    _refresh_env_api_groups(self)
+    self._refresh_api_feature_selectors()
 
     self._refresh_prompt_manager()
     self._refresh_font_manager()
@@ -568,6 +635,15 @@ def _on_setting_changed(self, value, full_key, display_map=None):
         self._update_upscale_ratio_options(final_value)
     
     self.setting_changed.emit(full_key, final_value)
+    if full_key in {
+        "translator.translator",
+        "ocr.ocr",
+        "ocr.secondary_ocr",
+        "ocr.use_hybrid_ocr",
+        "colorizer.colorizer",
+        "render.renderer",
+    }:
+        QTimer.singleShot(100, lambda: _refresh_env_api_groups(self))
 
 def _on_upscale_ratio_changed(self, text, full_key):
     """处理 upscale_ratio 动态下拉框的变化"""

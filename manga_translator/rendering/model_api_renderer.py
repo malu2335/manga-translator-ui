@@ -12,6 +12,7 @@ from ..custom_api_params import (
     load_enabled_custom_api_params,
     split_gemini_request_params,
 )
+from ..api_key_rotation import run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..translators.common import draw_text_boxes_on_image
 from ..utils import TextBlock, get_logger
@@ -20,9 +21,7 @@ from ..utils.ai_image_preprocess import (
     prepare_square_ai_image,
     restore_square_ai_image,
 )
-from ..utils.openai_compat import resolve_openai_compatible_api_key
 from ..utils.openai_image_interface import request_openai_image_with_fallback
-from ..utils.retry import run_with_retry
 from .prompt_loader import (
     DEFAULT_AI_RENDERER_PROMPT,
     ensure_ai_renderer_prompt_file,
@@ -120,12 +119,13 @@ class BaseAPIRenderer:
             message += f" (or fallback {self.FALLBACK_API_KEY_ENV})"
         return message + "."
 
-    async def ensure_client(self, runtime_config=None):
+    async def ensure_client(self, runtime_config=None, runtime_settings=None, endpoint=None):
         current_loop = asyncio.get_running_loop()
-        settings = self._read_runtime_config(runtime_config)
-        api_key = settings.api_key
-        base_url = settings.base_url
-        model_name = settings.model_name
+        settings = runtime_settings or self._read_runtime_config(runtime_config)
+        selected_endpoint = endpoint or (settings.candidates[0] if settings.candidates else None)
+        api_key = selected_endpoint.api_key if selected_endpoint else settings.api_key
+        base_url = selected_endpoint.base_url if selected_endpoint else settings.base_url
+        model_name = selected_endpoint.model_name if selected_endpoint else settings.model_name
         signature = (api_key or "", base_url, model_name)
         if (
             self.client is not None
@@ -221,8 +221,11 @@ class BaseAPIRenderer:
             raise RuntimeError(f"Failed to download rendered image: HTTP {response.status_code}")
         return Image.open(io.BytesIO(response.content)).convert("RGB")
 
-    async def _reset_client_for_retry(self, attempt_index: int, error: Exception):
-        del attempt_index, error
+    async def _reset_client_for_candidate(self, endpoint, error: Exception):
+        del endpoint, error
+        await self._close_current_client()
+
+    async def _close_current_client(self):
         if self.client is None:
             return
 
@@ -254,8 +257,8 @@ class BaseAPIRenderer:
         return None
 
     async def render(self, img: np.ndarray, text_regions: List[TextBlock], config) -> np.ndarray:
-        await self.ensure_client(config)
-        if not self.client or not self.api_key:
+        runtime_settings = self._read_runtime_config(config)
+        if not runtime_settings.api_key:
             raise RuntimeError(self._missing_api_key_message())
 
         renderable_regions = [
@@ -279,8 +282,8 @@ class BaseAPIRenderer:
         semaphore = _get_renderer_semaphore(self.PROVIDER_NAME, self._resolve_concurrency(config))
 
         async with semaphore:
-            async def _do_request() -> Image.Image:
-                await self.ensure_client(config)
+            async def _request_with_endpoint(endpoint) -> Image.Image:
+                await self.ensure_client(config, runtime_settings=runtime_settings, endpoint=endpoint)
                 if not self.client or not self.api_key:
                     raise RuntimeError(self._missing_api_key_message())
                 return await self._request_rendered_image(
@@ -289,14 +292,19 @@ class BaseAPIRenderer:
                     custom_api_params=custom_api_params,
                 )
 
-            result_image = await run_with_retry(
-                operation=_do_request,
-                runtime_config=config,
-                provider_name=self.PROVIDER_NAME,
-                operation_name="render request",
-                logger=self.logger,
-                on_retry=self._reset_client_for_retry,
-            )
+            async def _do_request() -> Image.Image:
+                return await run_with_api_candidates(
+                    endpoints=runtime_settings.candidates,
+                    strategy=runtime_settings.strategy,
+                    operation=_request_with_endpoint,
+                    provider_name=self.PROVIDER_NAME,
+                    operation_name="render request",
+                    logger=self.logger,
+                    runtime_config=config,
+                    on_candidate_error=self._reset_client_for_candidate,
+                )
+
+            result_image = await _do_request()
 
         result_image = restore_square_ai_image(self._to_pil(result_image), restore_info)
         if result_image.size != (img.shape[1], img.shape[0]):
@@ -319,8 +327,8 @@ class OpenAIRenderer(BaseAPIRenderer):
     API_KEY_ENV = "RENDER_OPENAI_API_KEY"
     API_BASE_ENV = "RENDER_OPENAI_API_BASE"
     MODEL_ENV = "RENDER_OPENAI_MODEL"
-    FALLBACK_API_KEY_ENV = ""
-    FALLBACK_API_BASE_ENV = ""
+    FALLBACK_API_KEY_ENV = "OPENAI_API_KEY"
+    FALLBACK_API_BASE_ENV = "OPENAI_API_BASE"
     FALLBACK_MODEL_ENV = ""
     DEFAULT_API_BASE = "https://api.openai.com/v1"
     DEFAULT_MODEL = "gpt-image-1"
@@ -368,8 +376,8 @@ class GeminiRenderer(BaseAPIRenderer):
     API_KEY_ENV = "RENDER_GEMINI_API_KEY"
     API_BASE_ENV = "RENDER_GEMINI_API_BASE"
     MODEL_ENV = "RENDER_GEMINI_MODEL"
-    FALLBACK_API_KEY_ENV = ""
-    FALLBACK_API_BASE_ENV = ""
+    FALLBACK_API_KEY_ENV = "GEMINI_API_KEY"
+    FALLBACK_API_BASE_ENV = "GEMINI_API_BASE"
     FALLBACK_MODEL_ENV = ""
     DEFAULT_API_BASE = "https://generativelanguage.googleapis.com"
     DEFAULT_MODEL = "gemini-2.0-flash-preview-image-generation"
