@@ -238,7 +238,7 @@ class MainView(QWidget):
         if hasattr(self, "translation_page_title"):
             self.translation_page_title.setText(self._t("Translation Interface"))
         if hasattr(self, "translation_input_card"):
-            self.translation_input_card.setTitle(self._t("Input Files"))
+            self.translation_input_card.setTitle("")
         if hasattr(self, "translation_task_card"):
             self.translation_task_card.setTitle(self._t("Translation Task"))
         if hasattr(self, "add_files_button"):

@@ -419,11 +419,6 @@ def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False)
         row_layout.setContentsMargins(0, 18, 0, 6)
         row_layout.setSpacing(10)
 
-        accent_bar = QFrame()
-        accent_bar.setObjectName("settings_divider_accent")
-        accent_bar.setFixedWidth(4)
-        accent_bar.setFixedHeight(18)
-
         title_label = QLabel(title.upper())
         title_label.setObjectName("settings_divider_title")
 
@@ -431,7 +426,6 @@ def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False)
         line.setFrameShape(QFrame.Shape.HLine)
         line.setObjectName("settings_divider_line")
 
-        row_layout.addWidget(accent_bar)
         row_layout.addWidget(title_label)
         row_layout.addWidget(line, 1)
 

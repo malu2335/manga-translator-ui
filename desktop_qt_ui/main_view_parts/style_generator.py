@@ -118,13 +118,16 @@ def generate_main_view_style(theme: str = "dark") -> str:
             background: {c["splitter_handle_hover"]};
         }}
 
-        #header_card,
         QGroupBox#section_card,
         #settings_desc_panel,
         #log_container {{
             background: {c["bg_header_card"]};
             border: 1px solid {c["border_subtle"]};
             border-radius: 16px;
+        }}
+        #header_card {{
+            background: transparent;
+            border: none;
         }}
         QGroupBox#section_card {{
             margin-top: 12px;
@@ -527,6 +530,27 @@ def generate_main_view_style(theme: str = "dark") -> str:
             background: {c["tab_hover"]};
             background-color: {c["tab_hover"]};
             color: {c["text_bright"]};
+        }}
+        #main_view_root #settings_divider_line,
+        #main_view_root #settings_divider_sub_line {{
+            border: none;
+            background-color: {c["border_input"]};
+            height: 1px;
+            max-height: 1px;
+        }}
+        #main_view_root #settings_divider_title {{
+            color: {c["text_desc_key"]};
+            font-size: 13px;
+            font-weight: 700;
+        }}
+        #main_view_root #settings_divider_sub_title {{
+            color: {c["text_secondary"]};
+            font-size: 12px;
+            font-weight: 600;
+        }}
+        #main_view_root #settings_divider_dot {{
+            color: {c["text_divider_dot"]};
+            font-size: 10px;
         }}
     """
 

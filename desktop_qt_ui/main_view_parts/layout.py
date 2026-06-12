@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QSlider,
     QSplitter,
     QStackedWidget,
+    QStyle,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -536,7 +537,7 @@ def create_translation_page(self) -> QWidget:
     header_card = QWidget()
     header_card.setObjectName("header_card")
     header_layout = QVBoxLayout(header_card)
-    header_layout.setContentsMargins(16, 14, 16, 14)
+    header_layout.setContentsMargins(12, 4, 12, 4)
     header_layout.setSpacing(4)
     self.translation_page_title = QLabel(self._t("Normal Translation"))
     self.translation_page_title.setObjectName("page_title")
@@ -549,7 +550,7 @@ def create_translation_page(self) -> QWidget:
     header_layout.addWidget(self.translation_page_subtitle)
     page_layout.addWidget(header_card)
 
-    self.translation_input_card = QGroupBox(self._t("Input Files"))
+    self.translation_input_card = QGroupBox("")
     self.translation_input_card.setObjectName("section_card")
     input_layout = QVBoxLayout(self.translation_input_card)
     input_layout.setContentsMargins(12, 14, 12, 12)
@@ -659,7 +660,7 @@ def create_settings_page(self) -> QWidget:
     header_card = QWidget()
     header_card.setObjectName("header_card")
     header_layout = QHBoxLayout(header_card)
-    header_layout.setContentsMargins(16, 12, 16, 12)
+    header_layout.setContentsMargins(12, 4, 12, 4)
     header_layout.setSpacing(8)
 
     title_col = QVBoxLayout()
@@ -815,7 +816,7 @@ def create_env_page(self) -> QWidget:
     header_card = QWidget()
     header_card.setObjectName("header_card")
     header_layout = QVBoxLayout(header_card)
-    header_layout.setContentsMargins(16, 12, 16, 12)
+    header_layout.setContentsMargins(12, 4, 12, 4)
     header_layout.setSpacing(8)
 
     title_col = QVBoxLayout()
@@ -928,7 +929,7 @@ def create_prompt_page(self) -> QWidget:
     header_card = QWidget()
     header_card.setObjectName("header_card")
     header_layout = QVBoxLayout(header_card)
-    header_layout.setContentsMargins(16, 14, 16, 14)
+    header_layout.setContentsMargins(12, 4, 12, 4)
     header_layout.setSpacing(4)
     self.prompt_page_title_label = QLabel(self._t("Prompt Management"))
     self.prompt_page_title_label.setObjectName("page_title")
@@ -1035,7 +1036,7 @@ def create_font_page(self) -> QWidget:
     header_card = QWidget()
     header_card.setObjectName("header_card")
     header_layout = QVBoxLayout(header_card)
-    header_layout.setContentsMargins(16, 14, 16, 14)
+    header_layout.setContentsMargins(12, 4, 12, 4)
     header_layout.setSpacing(4)
     self.font_page_title_label = QLabel(self._t("Font Management"))
     self.font_page_title_label.setObjectName("page_title")
@@ -1188,7 +1189,7 @@ def create_replacements_page(self) -> QWidget:
     header_card = QWidget()
     header_card.setObjectName("header_card")
     header_layout = QVBoxLayout(header_card)
-    header_layout.setContentsMargins(16, 14, 16, 14)
+    header_layout.setContentsMargins(12, 4, 12, 4)
     header_layout.setSpacing(4)
     self.replacements_page_title_label = QLabel(self._t("Replacement Rules"))
     self.replacements_page_title_label.setObjectName("page_title")

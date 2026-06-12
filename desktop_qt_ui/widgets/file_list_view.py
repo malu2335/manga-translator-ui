@@ -301,21 +301,39 @@ class FileListView(QTreeWidget):
         
         # 只在列表为空时显示提示
         if self.topLevelItemCount() == 0:
-            from PyQt6.QtCore import Qt
-            from PyQt6.QtGui import QFont, QPainter
+            from PyQt6.QtCore import Qt, QRectF
+            from PyQt6.QtGui import QFont, QPainter, QPen, QPalette
             
             painter = QPainter(self.viewport())
-            painter.setPen(self.palette().color(QPalette.ColorRole.PlaceholderText))
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             
-            # 设置字体
-            font = QFont()
-            font.setPointSize(10)
-            painter.setFont(font)
-            
-            # 绘制提示文本
             rect = self.viewport().rect()
+            # Draw a beautiful dashed rounded rectangle
+            margin = 16
+            draw_rect = QRectF(rect.adjusted(margin, margin, -margin, -margin))
+            
+            # Get color from palette
+            color = self.palette().color(QPalette.ColorRole.PlaceholderText)
+            
+            # Draw dashed border
+            pen = QPen(color, 1.5, Qt.PenStyle.DashLine)
+            pen.setDashPattern([6, 4])
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(draw_rect, 12, 12)
+            
+            # Draw Icon and Text
+            painter.setPen(color)
+            
+            # Draw Text centered
+            font_text = QFont()
+            font_text.setPointSize(10)
+            font_text.setBold(True)
+            painter.setFont(font_text)
+            text_rect = QRectF(draw_rect.left(), draw_rect.top(), draw_rect.width(), draw_rect.height())
+            
             text = self._t("Drag and drop files or folders here\nor click the buttons above to add")
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
             
             painter.end()
 
