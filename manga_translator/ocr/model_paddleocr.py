@@ -290,7 +290,10 @@ class ModelPaddleOCR(OfflineOCR):
         if not os.path.exists(dict_path):
             raise FileNotFoundError(f"Dictionary not found: {dict_path}")
         with open(dict_path, 'r', encoding='utf-8') as f:
-            return ['<blank>'] + [line.strip() for line in f]
+            chars = [line.strip('\r\n') for line in f]
+        if ' ' not in chars:
+            chars.append(' ')
+        return ['<blank>'] + chars
 
     async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral],
                      config: OcrConfig, verbose: bool = False, q=None) -> List[Quadrilateral]:
