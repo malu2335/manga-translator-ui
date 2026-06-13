@@ -263,7 +263,7 @@ class TranslatorConfig(BaseModel):
     target_lang: str = 'ENG' #todo: validate VALID_LANGUAGES #todo: convert to enum
     """Destination language"""
     keep_lang: str = 'none'
-    """Keep only merged text regions in this source language before translation. Use 'none' to disable."""
+    """After text merging, keep only regions detected as this source language for later processing. Filtered regions remain unchanged. Use 'none' to disable."""
     enable_streaming: bool = True
     """Enable unified streaming transport for supported AI translators."""
     no_text_lang_skip: bool = False

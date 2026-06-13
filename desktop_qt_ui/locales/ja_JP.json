@@ -951,7 +951,7 @@
   "desc_detector_yolo_obb_overlap_threshold": "重複する検出ボックスを除去するためのYOLOボックス重複閾値。",
   "desc_translator_translator": "翻訳エンジンを選択します。現在の Qt UI で選べる翻訳器は OpenAI、Google Gemini、Sakura、高品質翻訳 OpenAI、高品質翻訳 Gemini、および「翻訳しない」「原文保持」です。おすすめは高品質翻訳 OpenAI です。",
   "desc_translator_target_lang": "翻訳の対象言語。簡体字中国語、繁体字中国語、英語、日本語、韓国語等に対応。",
-  "desc_translator_keep_lang": "テキスト領域をマージした後、翻訳前に指定した原文言語として判定された領域だけを残します。無効化する場合は「フィルタなし」を選択してください。",
+  "desc_translator_keep_lang": "テキスト領域をマージした後、検出された原文言語で後続処理に進む領域を絞り込みます。一致しない領域は原画像のまま残り、修復・翻訳・描画されません。無効化する場合は「フィルタなし」を選択してください。",
   "desc_translator_enable_streaming": "有効にすると、対応する OpenAI/Gemini 翻訳器（高品質モードを含む）は統一ストリーミング転送を優先して増分応答を受信します。無効にすると常に通常の非ストリーミング要求を使用します。",
   "desc_translator_no_text_lang_skip": "既に対象言語のテキストもスキップせず、強制的に翻訳します。",
   "desc_translator_extract_glossary": "翻訳結果から固有名詞（人名、地名など）を自動抽出し、長編漫画シリーズでの翻訳一貫性を確保します。",

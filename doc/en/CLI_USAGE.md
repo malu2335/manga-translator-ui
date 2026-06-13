@@ -252,7 +252,7 @@ Basic example:
 
 - For the full config structure, use `examples/config-example.json` as the source of truth
 - For full parameter explanations, see [SETTINGS.md](SETTINGS.md)
-- `translator.keep_lang` filters candidate regions by source language after text-region merging and before translation
+- `translator.keep_lang` filters which candidate regions continue through later processing by source language after text-region merging. Non-matching regions stay unchanged and are not inpainted, translated, or rendered
   - Example: set it to `ENG` to keep only English text in English comics
   - Set it to `none` to disable source-language filtering
 - `translator.enable_streaming` controls whether `OpenAI`, `Google Gemini`, `OpenAI High Quality`, and `Gemini High Quality` prefer streaming responses

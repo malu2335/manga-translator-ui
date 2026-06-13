@@ -951,7 +951,7 @@
   "desc_detector_yolo_obb_overlap_threshold": "Umbral de superposición de cuadros YOLO para eliminar cuadros de detección superpuestos.",
   "desc_translator_translator": "Selecciona el motor de traduccion. En la Qt UI actual puedes usar OpenAI, Google Gemini, Sakura, Traduccion de Alta Calidad OpenAI, Traduccion de Alta Calidad Gemini, ademas de Sin traduccion y Mantener original. Se recomienda Traduccion de Alta Calidad OpenAI.",
   "desc_translator_target_lang": "Idioma destino para traducción. Compatible con chino simplificado, chino tradicional, inglés, japonés, coreano, etc.",
-  "desc_translator_keep_lang": "Después de fusionar las regiones de texto y antes de traducir, conserva solo las regiones detectadas como este idioma origen. Selecciona Sin filtro para desactivar la función.",
+  "desc_translator_keep_lang": "Después de fusionar las regiones de texto, filtra qué regiones continúan el procesamiento según el idioma origen detectado. Las regiones que no coincidan quedan sin cambios y no se borran, traducen ni renderizan. Selecciona Sin filtro para desactivar la función.",
   "desc_translator_enable_streaming": "Cuando está activado, los traductores OpenAI/Gemini compatibles, incluidos los modos HQ, priorizan el transporte unificado por streaming para respuestas incrementales. Cuando está desactivado, siempre usan solicitudes normales sin streaming.",
   "desc_translator_no_text_lang_skip": "No omitir texto que ya está en el idioma destino, forzar traducción.",
   "desc_translator_extract_glossary": "Extraer automáticamente nombres propios (nombres, lugares) de traducciones para asegurar consistencia en series largas de manga.",

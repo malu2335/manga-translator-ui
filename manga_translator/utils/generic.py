@@ -372,11 +372,15 @@ def download_url_with_progressbar(url: str, path: str, min_speed_kbps: float = 1
                         last_check_time = current_time
                         last_check_size = downloaded_size
         
-        # 检查下载的文件大小，如果太小可能是下载失败（如404页面）
+        # 检查下载的文件内容，如果小文件实际是 HTML 错误页才判定失败。
+        # 模型仓库里可能存在合法的小 JSON/YAML 配置文件（例如 100 多字节）。
         final_size = os.path.getsize(path)
-        if final_size < 1024:  # 小于1KB认为下载失败
-            os.remove(path)
-            raise Exception(f'Downloaded file is too small ({final_size} bytes), possibly a 404 page: "{url}"')
+        if final_size < 1024:
+            with open(path, 'rb') as f:
+                head = f.read(256).lstrip().lower()
+            if head.startswith((b'<!doctype', b'<html', b'<head', b'<body')):
+                os.remove(path)
+                raise Exception(f'Downloaded file looks like an HTML error page ({final_size} bytes): "{url}"')
     else:
         raise Exception(f'Couldn\'t resolve url: "{url}" (Error: {r.status_code})')
 
@@ -438,7 +442,65 @@ def load_image(img: Image.Image) -> Tuple[np.ndarray, Optional[Image.Image]]:
     else:
         return np.array(img.convert('RGB')), None
 
-def dump_image(img_pil: Image.Image, img: np.ndarray, alpha_ch: Image.Image = None):
+def _resize_alpha_array(alpha, target_shape: tuple[int, int], *, interpolation=cv2.INTER_LINEAR) -> Optional[np.ndarray]:
+    if alpha is None:
+        return None
+
+    if isinstance(alpha, Image.Image):
+        alpha_img = alpha.convert('L') if alpha.mode != 'L' else alpha
+        if alpha_img.size != (target_shape[1], target_shape[0]):
+            alpha_img = alpha_img.resize((target_shape[1], target_shape[0]), Image.Resampling.LANCZOS)
+        return np.array(alpha_img).astype(np.uint8)
+
+    alpha_array = np.asarray(alpha)
+    if alpha_array.ndim == 3:
+        alpha_array = alpha_array[..., 0]
+    if alpha_array.ndim != 2:
+        return None
+    if alpha_array.shape != target_shape:
+        alpha_array = cv2.resize(alpha_array.astype(np.uint8, copy=False), (target_shape[1], target_shape[0]), interpolation=interpolation)
+    return alpha_array.astype(np.uint8, copy=False)
+
+
+def _resize_mask_bool(mask, target_shape: tuple[int, int]) -> Optional[np.ndarray]:
+    mask_array = _resize_alpha_array(mask, target_shape, interpolation=cv2.INTER_NEAREST)
+    if mask_array is None:
+        return None
+    return mask_array > 0
+
+
+def _transparent_text_component_mask(mask_bool: np.ndarray, alpha_array: np.ndarray) -> np.ndarray:
+    clear_mask = np.zeros(mask_bool.shape, dtype=bool)
+    if not np.any(mask_bool):
+        return clear_mask
+
+    num_labels, labels = cv2.connectedComponents(mask_bool.astype(np.uint8), connectivity=8)
+    inspect_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    for label in range(1, num_labels):
+        component = labels == label
+        area = int(np.count_nonzero(component))
+        if area <= 0:
+            continue
+
+        inspect_area = component
+        if not np.any(alpha_array[component] <= 8):
+            inspect_area = cv2.dilate(component.astype(np.uint8), inspect_kernel, iterations=2).astype(bool)
+
+        inspect_pixels = max(int(np.count_nonzero(inspect_area)), 1)
+        transparent_pixels = int(np.count_nonzero(alpha_array[inspect_area] <= 8))
+        if transparent_pixels / inspect_pixels >= 0.01:
+            clear_mask[component] = True
+    return clear_mask
+
+
+def dump_image(
+    img_pil: Image.Image,
+    img: np.ndarray,
+    alpha_ch: Image.Image = None,
+    *,
+    mask: np.ndarray = None,
+    render_alpha: np.ndarray = None,
+):
     img_pil = normalize_pil_image(img_pil, eager=False)
     # 用于 paste 的 mask，可能需要调整尺寸
     mask_for_paste = alpha_ch
@@ -446,15 +508,28 @@ def dump_image(img_pil: Image.Image, img: np.ndarray, alpha_ch: Image.Image = No
     if alpha_ch is not None:
         if img.shape[2] != 4 :
             # 将 alpha 通道转换为 numpy 数组
-            alpha_array = np.array(alpha_ch).astype(np.uint8)
-            
-            # 检查尺寸是否匹配，如果不匹配则调整 alpha 通道尺寸
-            if alpha_array.shape[0] != img.shape[0] or alpha_array.shape[1] != img.shape[1]:
-                # 使用 PIL 调整 alpha 通道尺寸以匹配 img
-                alpha_ch_resized = alpha_ch.resize((img.shape[1], img.shape[0]), Image.LANCZOS)
-                alpha_array = np.array(alpha_ch_resized).astype(np.uint8)
-                mask_for_paste = alpha_ch_resized  # 更新用于 paste 的 mask
-            
+            if isinstance(alpha_ch, Image.Image) and alpha_ch.size != (img.shape[1], img.shape[0]):
+                mask_for_paste = alpha_ch.resize((img.shape[1], img.shape[0]), Image.Resampling.LANCZOS)
+                alpha_array = np.array(mask_for_paste).astype(np.uint8)
+            else:
+                alpha_array = _resize_alpha_array(alpha_ch, img.shape[:2])
+            if alpha_array is None:
+                alpha_array = np.full(img.shape[:2], 255, dtype=np.uint8)
+
+            if mask is not None or render_alpha is not None:
+                output_alpha = alpha_array.copy()
+                mask_bool = _resize_mask_bool(mask, img.shape[:2])
+                if mask_bool is not None:
+                    clear_mask = _transparent_text_component_mask(mask_bool, alpha_array)
+                    if np.any(clear_mask):
+                        output_alpha[clear_mask] = 0
+
+                render_alpha_array = _resize_alpha_array(render_alpha, img.shape[:2])
+                if render_alpha_array is not None:
+                    output_alpha = np.maximum(output_alpha, render_alpha_array)
+
+                img = np.concatenate([img.astype(np.uint8), output_alpha[..., None]], axis=2)
+                return Image.fromarray(img)
             img = np.concatenate([img.astype(np.uint8), alpha_array[..., None]], axis = 2)
     else:
         img = img.astype(np.uint8)

@@ -307,11 +307,12 @@ Open:
 2. `Translation`
 3. Find `Keep Source Language`
 
-This controls which OCR results are allowed into translation after region merging and before translation.
+This controls which OCR results continue through later processing after region merging.
 
 Typical use case:
 
-- For English-release Japanese manga, set it to `ENG` so only English text is translated
+- For English-release Japanese manga, set it to `ENG` so only English text is inpainted, translated, and rendered
+- Non-matching regions stay unchanged and are not inpainted, translated, or rendered
 
 Behavior notes:
 

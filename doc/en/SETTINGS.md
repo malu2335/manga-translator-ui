@@ -39,11 +39,11 @@ The original Chinese document grouped the interface into three tabs. In the curr
   - Current UI location: `Settings` -> `Translation` -> `Target Language`
   - Common choices include `Simplified Chinese`, `Traditional Chinese`, `English`, `Japanese`, `Korean`, and more.
 
-- **`Keep Source Language` (`keep_lang`)**: after text-box merging and before translation starts, only keep text regions detected as the specified source language.
+- **`Keep Source Language` (`keep_lang`)**: after text-box merging, filter which regions continue through later processing by detected source language. Non-matching regions stay unchanged and are not inpainted, translated, or rendered.
   - Current UI location: `Settings` -> `Translation` -> `Keep Source Language`
   - Default: `none` / `No Filter`
   - Use case: when translating English-release Japanese manga, keep only English text and try to skip Japanese titles, sound effects, or decorative text that should stay unchanged.
-  - Pipeline stage: this only affects the normal `OCR -> text-box merge -> translation` main flow, and runs after region merging but before translation.
+  - Pipeline stage: this only affects the normal `OCR -> text-box merge -> inpaint / translation / render` main flow, and runs after region merging.
   - English rule: pure Latin letters, numbers, spaces, and common English punctuation are prioritized as `ENG`.
   - Japanese rule: text containing hiragana or katakana is prioritized as `JPN`.
   - Shared CJK rule: if text contains only Han characters and no kana, the app does not force a strict Chinese-vs-Japanese split. It treats it as shared CJK text, so `CHS`, `CHT`, and `JPN` all keep it. This avoids accidental filtering of short terms such as `開始` or `決戦`.

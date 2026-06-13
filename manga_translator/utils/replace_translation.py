@@ -563,7 +563,12 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
                             logger.warning(f"    [DEBUG] 保存调试图失败: {e}")
                 
                     # 使用 dump_image 将结果转换为 PIL Image
-                    raw_ctx.result = dump_image(raw_ctx.input, result_img, getattr(raw_ctx, 'img_alpha', None))
+                    raw_ctx.result = dump_image(
+                        raw_ctx.input,
+                        result_img,
+                        getattr(raw_ctx, 'img_alpha', None),
+                        mask=translated_mask,
+                    )
                 
                 else:
                     # 原有逻辑：OCR + 重新渲染
@@ -576,7 +581,13 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
                     img_rendered = await translator._run_text_rendering(config, raw_ctx)
                 
                     # 使用 dump_image 将渲染后的 numpy 数组转换为 PIL Image
-                    raw_ctx.result = dump_image(raw_ctx.input, img_rendered, getattr(raw_ctx, 'img_alpha', None))
+                    raw_ctx.result = dump_image(
+                        raw_ctx.input,
+                        img_rendered,
+                        getattr(raw_ctx, 'img_alpha', None),
+                        mask=getattr(raw_ctx, 'mask', None),
+                        render_alpha=getattr(raw_ctx, 'img_render_alpha', None),
+                    )
             
             # === 步骤6: 保存结果 ===
             if save_info:

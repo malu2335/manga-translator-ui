@@ -878,7 +878,13 @@ class ConcurrentPipeline:
                         ctx.img_rendered = await self.translator._run_text_rendering(config, ctx)
                         self._check_cancelled_or_raise("渲染", f"处理 {os.path.basename(ctx.image_name)}")
                         from .generic import dump_image
-                        ctx.result = dump_image(ctx.input, ctx.img_rendered, ctx.img_alpha)
+                        ctx.result = dump_image(
+                            ctx.input,
+                            ctx.img_rendered,
+                            ctx.img_alpha,
+                            mask=ctx.mask,
+                            render_alpha=getattr(ctx, 'img_render_alpha', None),
+                        )
                     
                     self.stats['rendering'] += 1
                     rendered_count += 1

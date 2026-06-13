@@ -1,8 +1,8 @@
 """
-PaddleOCR-VL-1.5 OCR Model
+PaddleOCR-VL-1.6 OCR Model
 
-基于 PaddleOCR-VL-1.5 的 OCR 模型
-模型来源: https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5
+基于 PaddleOCR-VL-1.6 的 OCR 模型
+模型来源: https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6
 """
 
 import os
@@ -21,23 +21,43 @@ from ..utils.generic import AvgMeter
 from .common import OfflineOCR
 
 
+_PADDLEOCR_VL_16_BASE_URL = "https://www.modelscope.cn/models/PaddlePaddle/PaddleOCR-VL-1.6/resolve/master"
+_PADDLEOCR_VL_16_FILES = {
+    "added_tokens.json": "f59f889088e0fe21c523e7cf121bb6dca3b0bb148cb7159fbb4572c74dfc5644",
+    "chat_template.jinja": "2f27812dab7f333e471884e0c803d807f11953d5453140dfb1aaba234f872bc8",
+    "config.json": "ce7f4565f8b1db78532ad5d1b9ebe55c2139d49bd4cb04778b580a08a598f171",
+    "configuration_paddleocr_vl.py": "753dd93654c3a9c8c85a3eaee1e3092dd12591b0f2dce0305e1abfb7a41ff160",
+    "generation_config.json": "a6701d78ab3b4d972307cdec3b69d4c13f46e0d5140514f50ab7d84259324b94",
+    "image_processing_paddleocr_vl.py": "a4fa521b9cb16e207f94b7f2d16427771776dfc634420d319fc4916ee58049ec",
+    "inference.yml": "1587aece2d6442366efce34161d5f7d5f67f09ebfbf043168e5fade892c2780e",
+    "model.safetensors": "85a479d506a11e724e7285d395c551be69f41dbc16b6342d3cacfb189aed71db",
+    "modeling_paddleocr_vl.py": "c5013dff57ca8b87dc1de64d0fd839a44313de09d230a4fb2d08289d2cad5111",
+    "preprocessor_config.json": "111872ab1e8bb7fd040ac5087bfced7ab8f011f02139b088cba294964c3b1d0e",
+    "processing_paddleocr_vl.py": "e29cb1e5f275f2bd3ce051bd5c9983a33894e693b2823a0e13d4c07c8c4f9e13",
+    "processor_config.json": "1568858960a9760c54431dae693a6152e601ff55cdf6d2eab97a4a99958faea0",
+    "special_tokens_map.json": "d3a125c03103deb2acaf7730791bdbbf196f620e5a2213b664511ff9b4b25bab",
+    "tokenizer.json": "c8a215a59183d0d0781adc33bacd3ce6162716f7fd568fb30234a74d69803a7d",
+    "tokenizer.model": "34ef7db83df785924fb83d7b887b6e822a031c56e15cff40aaf9b982988180df",
+    "tokenizer_config.json": "1f979337347cc0cb72a6282d8a23ed183539aa81a87a906f022aee2bab83c7c5",
+}
+
+
 class ModelPaddleOCRVL(OfflineOCR):
     """
-    PaddleOCR-VL-1.5 OCR 模型
+    PaddleOCR-VL-1.6 OCR 模型
 
     这是一个基于 VLM 的 OCR 模型。
     模型使用 transformers 库加载，支持 GPU 加速。
     """
 
     _MODEL_MAPPING = {
-        'model': {
-            'url': [
-                'https://www.modelscope.cn/models/hgmzhn/manga-translator-ui/resolve/master/PaddleOCR-VL-1.5.7z',
-            ],
-            'hash': '6427e6fbe68f28cdb99594ea39d98d6169f38f04d386b0f4eb62cc176510c2eb',
-            'archive': {
-                'PaddleOCR-VL-1.5/': '.',
-            },
+        **{
+            f"paddleocr_vl_16_{filename}": {
+                "url": f"{_PADDLEOCR_VL_16_BASE_URL}/{filename}",
+                "hash": sha256,
+                "file": os.path.join("PaddleOCR-VL-1.6", filename),
+            }
+            for filename, sha256 in _PADDLEOCR_VL_16_FILES.items()
         },
         # 48px 颜色预测模型
         'color_model': {
@@ -57,7 +77,7 @@ class ModelPaddleOCRVL(OfflineOCR):
     }
 
     # 模型子目录名（在 models/ocr/ 下）
-    MODEL_DIR_NAME = "PaddleOCR-VL-1.5"
+    MODEL_DIR_NAME = "PaddleOCR-VL-1.6"
     _OCR_VL_LANGUAGE_HINTS = {
         "auto": "OCR: Extract all text.",
         "multilingual": "OCR: Extract all multilingual text.",
@@ -119,13 +139,13 @@ class ModelPaddleOCRVL(OfflineOCR):
         self.device = None
         self.color_model = None  # 48px 模型用于颜色预测
 
+    async def _download(self):
+        os.makedirs(os.path.join(self.model_dir, self.MODEL_DIR_NAME), exist_ok=True)
+        await super()._download()
+
     async def _load(self, device: str):
         """加载模型"""
-        # 在加载前过滤相关警告
-        import warnings
-        warnings.filterwarnings('ignore', message='.*slow image processor.*')
-
-        # 确定模型路径 - 使用 models/ocr/PaddleOCR-VL-1.5
+        # 确定模型路径 - 使用 models/ocr/PaddleOCR-VL-1.6
         model_path = os.path.join(self.model_dir, self.MODEL_DIR_NAME)
         
         # 自动修补模型文件
@@ -140,18 +160,14 @@ class ModelPaddleOCRVL(OfflineOCR):
         use_relative_path = False
         original_cwd = None
 
-        if not os.path.exists(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
-            # 如果本地没有，尝试从 HuggingFace 加载
-            model_path = "PaddlePaddle/PaddleOCR-VL-1.5"
-        else:
-            # Windows 中文路径兼容：使用 tokenizers 后端（use_fast=True）避免 sentencepiece 路径问题
-            # 通过切换工作目录使用相对路径来规避
-            if sys.platform == 'win32':
-                try:
-                    # 检测路径是否包含非 ASCII 字符
-                    model_path.encode('ascii')
-                except UnicodeEncodeError:
-                    use_relative_path = True
+        # Windows 中文路径兼容：使用 tokenizers 后端（use_fast=True）避免 sentencepiece 路径问题
+        # 通过切换工作目录使用相对路径来规避
+        if sys.platform == 'win32':
+            try:
+                # 检测路径是否包含非 ASCII 字符
+                model_path.encode('ascii')
+            except UnicodeEncodeError:
+                use_relative_path = True
 
         # 设置设备
         if device == 'cuda' and torch.cuda.is_available():
@@ -211,18 +227,14 @@ class ModelPaddleOCRVL(OfflineOCR):
             if chat_template:
                 tokenizer.chat_template = chat_template
             
-            # 加载 image processor（使用慢速模式）
-            # 过滤 slow image processor 警告
-            import warnings
-
+            # 加载 image processor（显式使用模型自带的 Python processor）
             from transformers import AutoImageProcessor
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', message='.*slow image processor.*')
-                image_processor = AutoImageProcessor.from_pretrained(
-                    load_path,
-                    trust_remote_code=True,
-                    local_files_only=use_relative_path
-                )
+            image_processor = AutoImageProcessor.from_pretrained(
+                load_path,
+                trust_remote_code=True,
+                use_fast=False,
+                local_files_only=True
+            )
             
             # 手动创建 processor，直接导入自定义类避免 AutoProcessor 再次加载 tokenizer
             sys.path.insert(0, load_path if not use_relative_path else ".")
@@ -242,9 +254,9 @@ class ModelPaddleOCRVL(OfflineOCR):
             self.model = AutoModel.from_pretrained(
                 load_path,
                 trust_remote_code=True,
-                torch_dtype=model_dtype,
+                dtype=model_dtype,
                 device_map=self.device if self.device != 'cpu' else None,
-                local_files_only=use_relative_path
+                local_files_only=True
             )
         finally:
             # 恢复原工作目录

@@ -2061,6 +2061,10 @@ class MangaTranslator:
         if hasattr(ctx, 'img_rendered') and ctx.img_rendered is not None:
             del ctx.img_rendered
             ctx.img_rendered = None
+
+        if hasattr(ctx, 'img_render_alpha') and ctx.img_render_alpha is not None:
+            del ctx.img_render_alpha
+            ctx.img_render_alpha = None
         
         if hasattr(ctx, 'img_alpha') and ctx.img_alpha is not None:
             del ctx.img_alpha
@@ -2156,6 +2160,9 @@ class MangaTranslator:
                 if hasattr(ctx, 'img_rendered') and ctx.img_rendered is not None:
                     del ctx.img_rendered
                     ctx.img_rendered = None
+                if hasattr(ctx, 'img_render_alpha') and ctx.img_render_alpha is not None:
+                    del ctx.img_render_alpha
+                    ctx.img_render_alpha = None
                 if hasattr(ctx, 'img_alpha') and ctx.img_alpha is not None:
                     del ctx.img_alpha
                     ctx.img_alpha = None
@@ -3081,11 +3088,15 @@ class MangaTranslator:
 
         render_base_img = ctx.img_rgb if self._should_skip_inpainting_for_ai_renderer(config) else ctx.img_inpainted
 
+        ctx.img_render_alpha = None
         if config.render.renderer == Renderer.none:
             output = render_base_img
         else:
             # Request debug image for balloon_fill mode when verbose
             need_debug_img = self.verbose and config.render.layout_mode == 'balloon_fill'
+            render_alpha = None
+            if getattr(ctx, 'img_alpha', None) is not None and render_base_img is not None:
+                render_alpha = np.zeros(render_base_img.shape[:2], dtype=np.uint8)
             result = await dispatch_rendering(
                 render_base_img,
                 ctx.text_regions,
@@ -3094,6 +3105,7 @@ class MangaTranslator:
                 return_debug_img=need_debug_img,
                 skip_font_scaling=skip_font_scaling,
                 skip_text_replacements=skip_text_replacements or bool(getattr(ctx, 'skip_text_replacements', False)),
+                render_alpha=render_alpha,
             )
             
             # Handle debug image if returned
@@ -3110,6 +3122,9 @@ class MangaTranslator:
                         logger.error(f"Failed to save balloon_fill debug image: {e}")
             else:
                 output = result
+
+            if render_alpha is not None and np.any(render_alpha):
+                ctx.img_render_alpha = render_alpha
         
         # ✅ 渲染完成后立即清理不再需要的图像数据
         if hasattr(ctx, 'img_rgb') and ctx.img_rgb is not None:
@@ -3692,11 +3707,10 @@ class MangaTranslator:
                                     ):
                                         self._save_inpainted_image(image_name, ctx.img_inpainted)
 
+                                    await self._report_progress('finished', True)
+                                    ctx.result = dump_image(ctx.input, ctx.img_inpainted, ctx.img_alpha, mask=ctx.mask)
                                     if mask_injected_from_raw:
                                         ctx.mask = None
-
-                                    await self._report_progress('finished', True)
-                                    ctx.result = dump_image(ctx.input, ctx.img_inpainted, ctx.img_alpha)
                                     ctx = await self._revert_upscale(config, ctx)
                                 else:
                                     logger.info(
@@ -3753,7 +3767,13 @@ class MangaTranslator:
                                 )
                                 
                                 await self._report_progress('finished', True)
-                                ctx.result = dump_image(ctx.input, ctx.img_rendered, ctx.img_alpha)
+                                ctx.result = dump_image(
+                                    ctx.input,
+                                    ctx.img_rendered,
+                                    ctx.img_alpha,
+                                    mask=ctx.mask,
+                                    render_alpha=getattr(ctx, 'img_render_alpha', None),
+                                )
                                 ctx = await self._revert_upscale(config, ctx)
 
                             # load_text模式：渲染后回写JSON（同步最新regions，包含translation/font_size等字段）
@@ -5353,7 +5373,13 @@ class MangaTranslator:
             raise FileTranslationFailure("rendering", e) from e
 
         await self._report_progress('finished', True)
-        ctx.result = dump_image(ctx.input, ctx.img_rendered, ctx.img_alpha)
+        ctx.result = dump_image(
+            ctx.input,
+            ctx.img_rendered,
+            ctx.img_alpha,
+            mask=ctx.mask,
+            render_alpha=getattr(ctx, 'img_render_alpha', None),
+        )
         
         # 保存debug文件夹信息到Context中（用于Web模式的缓存访问）
         if self.verbose:

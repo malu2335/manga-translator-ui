@@ -2096,6 +2096,7 @@ async def dispatch(
     return_debug_img: bool = False,
     skip_font_scaling: bool = False,
     skip_text_replacements: bool = False,
+    render_alpha: Optional[np.ndarray] = None,
     ):
 
     if config is None:
@@ -2158,6 +2159,7 @@ async def dispatch(
                 line_spacing_multiplier,
                 config.render.disable_font_border,
                 config,
+                render_alpha=render_alpha,
             )
         except Exception:
             raise
@@ -2173,7 +2175,8 @@ def render(
     hyphenate,
     line_spacing,
     disable_font_border,
-    config: Config
+    config: Config,
+    render_alpha: Optional[np.ndarray] = None,
 ):
     region.translation = _apply_vertical_horizontal_markup(
         region.translation,
@@ -2461,6 +2464,14 @@ def render(
                 target_region.astype(np.float32) * (1.0 - mask_region) + canvas_region.astype(np.float32),
                 0, 255
             ).astype(np.uint8)
+            if render_alpha is not None:
+                try:
+                    alpha_region = rgba_region[valid_y1:valid_y2, valid_x1:valid_x2, 3]
+                    alpha_target = render_alpha[img_target_y1:img_target_y2, img_target_x1:img_target_x2]
+                    if alpha_region.shape == alpha_target.shape:
+                        np.maximum(alpha_target, alpha_region, out=alpha_target)
+                except Exception as alpha_error:
+                    logger.debug(f"Failed to accumulate render alpha: {alpha_error}")
         else:
             logger.warning(f"Text region size mismatch: canvas={canvas_region.shape[:2]}, target={target_region.shape[:2]}, skipping region")
     else:

@@ -951,7 +951,7 @@
   "desc_detector_yolo_obb_overlap_threshold": "겹치는 감지 박스를 제거하기 위한 YOLO 박스 겹침 임계값.",
   "desc_translator_translator": "번역 엔진을 선택합니다. 현재 Qt UI에서 선택할 수 있는 번역기는 OpenAI, Google Gemini, Sakura, 고품질 번역 OpenAI, 고품질 번역 Gemini, 그리고 '번역 안 함', '원문 유지'입니다. 고품질 번역 OpenAI를 권장합니다.",
   "desc_translator_target_lang": "번역 대상 언어. 간체 중국어, 번체 중국어, 영어, 일본어, 한국어 등을 지원합니다.",
-  "desc_translator_keep_lang": "텍스트 영역 병합이 끝난 뒤 번역 전에 지정한 원문 언어로 판정된 영역만 유지합니다. 이 기능을 끄려면 필터 없음을 선택하세요.",
+  "desc_translator_keep_lang": "텍스트 영역 병합 후 감지된 원문 언어로 후속 처리할 영역을 필터링합니다. 일치하지 않는 영역은 원본 이미지 그대로 남고 인페인트, 번역, 렌더링되지 않습니다. 이 기능을 끄려면 필터 없음을 선택하세요.",
   "desc_translator_enable_streaming": "활성화하면 지원되는 OpenAI/Gemini 번역기(HQ 모드 포함)가 통합 스트리밍 전송을 우선 사용해 증분 응답을 받습니다. 비활성화하면 항상 일반 비스트리밍 요청을 사용합니다.",
   "desc_translator_no_text_lang_skip": "이미 대상 언어인 텍스트도 건너뛰지 않고 강제 번역합니다.",
   "desc_translator_extract_glossary": "번역 결과에서 고유명사(인명, 지명 등)를 자동 추출하여 장편 만화 시리즈의 번역 일관성을 보장합니다.",

@@ -960,7 +960,7 @@
   "desc_detector_yolo_obb_overlap_threshold": "YOLO 框重叠阈值，用于去除重叠的检测框。",
   "desc_translator_translator": "选择翻译引擎。当前 Qt UI 可选翻译器包括 OpenAI、Google Gemini、Sakura、高质量翻译 OpenAI、高质量翻译 Gemini，以及“不翻译”“保留原文”。推荐高质量翻译 OpenAI。",
   "desc_translator_target_lang": "翻译的目标语言。支持简体中文、繁体中文、英语、日语、韩语等。",
-  "desc_translator_keep_lang": "文本框合并完成后、进入翻译前，只保留识别为指定源语言的文本区域。设为“不过滤”则禁用此功能。",
+  "desc_translator_keep_lang": "文本框合并完成后，按识别出的源语言过滤后续处理区域；不匹配的区域会保持原图，不擦除、不翻译、不渲染。设为“不过滤”则禁用此功能。",
   "desc_translator_enable_streaming": "启用后，OpenAI/Gemini（含高质量模式）会优先使用统一流式传输层实时接收增量响应；关闭后始终使用普通非流式请求。",
   "desc_translator_no_text_lang_skip": "不跳过已是目标语言的文本，强制进行翻译。",
   "desc_translator_extract_glossary": "自动从翻译结果中提取人名、地名等专有名词，确保长篇漫画翻译一致性。",
