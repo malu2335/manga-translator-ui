@@ -266,10 +266,11 @@ Depending on the setting type, also check these extra locations:
 
 Current UI note:
 
-If the setting is meant to appear on the current desktop settings page, it will usually belong under one of these current UI pages instead of the older `Basic Settings` / `Advanced Settings` wording:
+If the setting is meant to appear on the current desktop settings page, it will usually belong under one of these current UI pages instead of the older broad tab wording:
 
 - `Settings` -> `General`
-- `Settings` -> `Recognition`
+- `Settings` -> `OCR`
+- `Settings` -> `Detection`
 - `Settings` -> `Translation`
 - `Settings` -> `Inpainting`
 - `Settings` -> `Typesetting`

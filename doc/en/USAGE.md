@@ -271,9 +271,8 @@ The main button text changes with the mode:
 Open:
 
 1. `Settings`
-2. `Recognition`
-3. OCR group
-4. `OCR Model`
+2. `OCR`
+3. `OCR Model`
 
 Common choices:
 
@@ -487,7 +486,7 @@ Possible reasons:
    - CPU is much slower than a compatible GPU
 
 2. **Images are very large**
-   - Open `Settings` -> `Recognition`
+   - Open `Settings` -> `Detection`
    - Reduce `Detection Size`
    - Open `Settings` -> `Inpainting`
    - Reduce `Inpainting Size`
@@ -506,7 +505,7 @@ Try this:
 Try this:
 
 1. Turn on `Verbose Logging`
-2. Open `Settings` -> `Recognition`
+2. Open `Settings` -> `Detection`
 3. Tune:
    - `Text Threshold`
    - `Box Generation Threshold`

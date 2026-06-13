@@ -325,8 +325,8 @@ These OCR backends are mainly used by the Qt desktop UI and are configured throu
 ### Where they appear in the UI
 
 1. Open `Settings`
-2. Open `Recognition`
-3. In the `OCR` group, set `OCR Model` to:
+2. Open `OCR`
+3. Set `OCR Model` to:
    - `openai_ocr`
    - `gemini_ocr`
 
@@ -381,7 +381,7 @@ Related file:
 Editing flow:
 
 1. Open `Settings`
-2. Open `Recognition`
+2. Open `OCR`
 3. Find `AI OCR Prompt`
 4. Click `Edit`
 

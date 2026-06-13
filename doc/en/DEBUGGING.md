@@ -2,10 +2,11 @@
 
 This document explains how to debug translation quality issues and troubleshoot common problems.
 
-To stay aligned with the current desktop UI, this English version uses the actual current UI labels from the project `i18n`. Where the original Chinese document referred to older tabs such as `Basic Settings` or `Advanced Settings`, the current desktop UI mostly maps those controls to:
+To stay aligned with the current desktop UI, this English version uses the actual current UI labels from the project `i18n`. Where older documentation referred to broad legacy settings tabs, the current desktop UI mostly maps those controls to:
 
 - `Settings` -> `General`
-- `Settings` -> `Recognition`
+- `Settings` -> `OCR`
+- `Settings` -> `Detection`
 - `Settings` -> `Inpainting`
 - `Settings` -> `Typesetting`
 - `Translation Interface`
@@ -113,7 +114,7 @@ If detection or recognition quality is poor, you can adjust the following settin
 
 Current UI section:
 
-- `Settings` -> `Recognition` -> `Detection`
+- `Settings` -> `Detection`
 
 - **`Text Threshold` (`text_threshold`)**: `0.1 - 0.9`, default `0.5`
   - Confidence threshold for deciding whether a region is text
@@ -134,8 +135,8 @@ Current UI section:
 
 Current UI sections:
 
-- `Settings` -> `Recognition` -> `OCR`
-- `Settings` -> `Recognition` -> `Advanced`
+- `Settings` -> `OCR`
+- `Settings` -> `OCR` -> `Advanced`
 
 - **`Text Region Min Probability` (`prob`)**: `0.0 - 1.0`, default `0.1`
   - OCR confidence threshold

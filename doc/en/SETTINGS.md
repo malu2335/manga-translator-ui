@@ -2,12 +2,13 @@
 
 This document fully explains the program's settings and parameters.
 
-To stay aligned with the current desktop UI, this English version uses the actual current UI labels from the project `i18n`. The original Chinese document groups items as `Basic Settings`, `Advanced Settings`, and `Options`, but in the current UI those controls are mainly distributed across:
+To stay aligned with the current desktop UI, this English version uses the actual current UI labels from the project `i18n`. Older documentation may refer to broad legacy settings tabs, but in the current UI those controls are mainly distributed across:
 
 - `Translation Interface`
 - `Settings`
   - `General`
-  - `Recognition`
+  - `OCR`
+  - `Detection`
   - `Translation`
   - `Inpainting`
   - `Typesetting`
@@ -16,22 +17,22 @@ To stay aligned with the current desktop UI, this English version uses the actua
 - `Prompt Management`
 - `Font Management`
 
-Where the original Chinese document used older UI wording, this English version keeps the full explanation but updates the visible button names and locations to match the current UI.
+Where older documentation used legacy UI wording, this version keeps the full explanation but updates the visible button names and locations to match the current UI.
 
 ---
 
 ## Parameter Details
 
-The original Chinese document grouped the interface into three tabs. In the current desktop UI, the same settings are spread across the pages listed above, but the underlying config items and behavior are the same.
+Older versions grouped the interface into broad settings tabs. In the current desktop UI, the same settings are spread across the pages listed above, but the underlying config items and behavior are the same.
 
 ---
 
-## Basic Settings
+## Translation And General Settings
 
 ### Translator Settings
 
 - **`Translator` (`translator`)**: choose the translation engine.
-  - Current UI location: `Translation Interface` -> `Translator`
+  - Current UI location: `Settings` -> `Translation` -> `Translator`
   - Online translators include `OpenAI`, `Google Gemini`, `Vertex`, `DeepL`, `Baidu`, and others.
   - High-quality translators include `OpenAI High Quality`, `Gemini High Quality`, and `Vertex High Quality` and are generally recommended.
 
@@ -304,35 +305,35 @@ The original Chinese document grouped the interface into three tabs. In the curr
 
 ---
 
-## Advanced Settings
+## Detection, Inpainting, Typesetting, And Mode-Specific Settings
 
 ### Detector Settings
 
 - **`Text Detector` (`detector`)**: text detection algorithm.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `Text Detector`
+  - Current UI location: `Settings` -> `Detection` -> `Text Detector`
   - `default`: default detector (`DBNet + ResNet34`)
   - `ctd`: comic text detector
   - `craft`: CRAFT detector
 
 - **`Detection Size` (`detection_size`)**: image scale size used during detection.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `Detection Size`
+  - Current UI location: `Settings` -> `Detection` -> `Detection Size`
   - Default is usually `2048`
   - Larger values are more accurate but slower
 
 - **`Text Threshold` (`text_threshold`)**: text detection confidence threshold.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `Text Threshold`
+  - Current UI location: `Settings` -> `Detection` -> `Text Threshold`
   - Range: `0-1`
   - Larger values are stricter
 
 - **`Box Generation Threshold` (`box_threshold`)**: confidence threshold used to generate text boxes.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `Box Generation Threshold`
+  - Current UI location: `Settings` -> `Detection` -> `Box Generation Threshold`
   - Lower values detect more boxes
 
 - **`Unclip Ratio` (`unclip_ratio`)**: control how far detected text boxes are expanded.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `Unclip Ratio`
+  - Current UI location: `Settings` -> `Detection` -> `Unclip Ratio`
 
 - **`Min Box Area Ratio` (`min_box_area_ratio`)**: minimum detected box area relative to the total image pixels.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `Min Box Area Ratio`
+  - Current UI location: `Settings` -> `Detection` -> `Min Box Area Ratio`
   - Default: `0.0009` = `0.09%`
   - Filters out boxes that are too small
   - Larger values filter more aggressively and remove small text boxes
@@ -340,7 +341,7 @@ The original Chinese document grouped the interface into three tabs. In the curr
   - Suggested range: `0.0005-0.002` (`0.05%-0.2%`)
 
 - **`Import Fixed YOLO Boxes` (`import_yolo_labels`)**: import YOLO annotation boxes from a fixed directory.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `Import Fixed YOLO Boxes`
+  - Current UI location: `Settings` -> `Detection` -> `Import Fixed YOLO Boxes`
   - Fixed path: `source_image_dir/manga_translator_work/yolo_labels/<same_image_name>.txt`
   - Class labels are ignored and all boxes in the file are imported
   - In the normal translation flow: the detector-generated mask is preserved, but later OCR and text-box merging use the imported boxes
@@ -348,11 +349,11 @@ The original Chinese document grouped the interface into three tabs. In the curr
   - In `Import Translation and Render`: the JSON text boxes are not overwritten; imported YOLO boxes are only used when the JSON is missing a mask and one must be generated
 
 - **`Enable YOLO Detection` (`use_yolo_obb`)**: use YOLO oriented bounding boxes as assisted detection.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `Enable YOLO Detection`
+  - Current UI location: `Settings` -> `Detection` -> `Enable YOLO Detection`
   - Helps improve detection accuracy
 
 - **`YOLO Confidence Threshold` (`yolo_obb_conf`)**: confidence threshold for YOLO-assisted detection.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `YOLO Confidence Threshold`
+  - Current UI location: `Settings` -> `Detection` -> `YOLO Confidence Threshold`
   - Larger values are stricter
 
 - **`YOLO IoU` (`yolo_obb_iou`, legacy parameter)**: older Chinese documentation described this as the IoU threshold used to judge YOLO box overlap.
@@ -361,7 +362,7 @@ The original Chinese document grouped the interface into three tabs. In the curr
   - If you are comparing older configs or screenshots, this is why you can no longer find a matching control in the current desktop UI
 
 - **`YOLO Overlap Removal Threshold` (`yolo_obb_overlap_threshold`)**: overlap threshold used to remove overlapping YOLO boxes.
-  - Current UI location: `Settings` -> `Recognition` -> `Detection` -> `YOLO Overlap Removal Threshold`
+  - Current UI location: `Settings` -> `Detection` -> `YOLO Overlap Removal Threshold`
 
 ### Inpainter Settings
 
@@ -619,12 +620,12 @@ The original Chinese document grouped the interface into three tabs. In the curr
 
 ---
 
-## Options
+## OCR And API Related Settings
 
 ### OCR Settings
 
 - **`OCR Model` (`ocr`)**: OCR recognition model.
-  - Current UI location: `Settings` -> `Recognition` -> `OCR` -> `OCR Model`
+  - Current UI location: `Settings` -> `OCR` -> `OCR Model`
   - `32px`: legacy lightweight model, good as a compatibility fallback
   - `48px`: default model, recommended balance of speed and accuracy
   - `48px_ctc`: CTC variant of `48px`, good for comparison but not always more accurate
@@ -644,7 +645,7 @@ The original Chinese document grouped the interface into three tabs. In the curr
     - Thai: `paddleocr_thai`
 
 - **`AI OCR Prompt`**: fixed prompt file for `OpenAI OCR` / `Gemini OCR`.
-  - Current UI location: `Settings` -> `Recognition` -> `OCR` -> `AI OCR Prompt`
+  - Current UI location: `Settings` -> `OCR` -> `AI OCR Prompt`
   - Click `Edit` in the Qt UI to modify it
   - Fixed path: `dict/ai_ocr_prompt.yaml`
   - Note: In CLI mode, if this file cannot be found, please start the application once first, and it will be generated automatically from a built-in template.
@@ -681,18 +682,18 @@ The original Chinese document grouped the interface into three tabs. In the curr
   - If `Use Custom API Params` is enabled, the `render` group is automatically mapped into the corresponding backend request body
 
 - **`Enable Hybrid OCR` (`use_hybrid_ocr`)**: use two OCR models together to improve accuracy.
-  - Current UI location: `Settings` -> `Recognition` -> `OCR` -> `Enable Hybrid OCR`
+  - Current UI location: `Settings` -> `OCR` -> `Enable Hybrid OCR`
   - Recommended Japanese manga combination: `48px + mocr`
 
 - **`Secondary OCR` (`secondary_ocr`)**: the second OCR model used when hybrid OCR is enabled.
-  - Current UI location: `Settings` -> `Recognition` -> `OCR` -> `Secondary OCR`
+  - Current UI location: `Settings` -> `OCR` -> `Secondary OCR`
   - For Japanese manga, if the primary OCR is `48px`, `mocr` is a good secondary OCR
 
 - **`Minimum Text Length` (`min_text_length`)**: minimum text length; shorter text is filtered out.
-  - Current UI location: `Settings` -> `Recognition` -> `OCR` -> `Minimum Text Length`
+  - Current UI location: `Settings` -> `OCR` -> `Minimum Text Length`
 
 - **`Ignore Non-Bubble Text` (`ignore_bubble`)**: intelligently skip text outside speech bubbles.
-  - Current UI location: `Settings` -> `Recognition` -> `OCR` -> `Ignore Non-Bubble Text`
+  - Current UI location: `Settings` -> `OCR` -> `Ignore Non-Bubble Text`
   - Function: automatically identify and skip text outside dialogue bubbles, such as titles, sound effects, or background text
   - Supported OCR models: all current models, including `48px`, `48px_ctc`, `32px`, `mocr`, and `paddleocr`
   - Range: `0-1`, where `0` disables the feature
@@ -720,19 +721,19 @@ The original Chinese document grouped the interface into three tabs. In the curr
   - Use case: protect bubble borders and avoid unwanted repair outside the dialogue box
 
 - **`Text Region Min Probability` (`prob`)**: OCR recognition probability threshold.
-  - Current UI location: `Settings` -> `Recognition` -> `Advanced` -> `Text Region Min Probability`
+  - Current UI location: `Settings` -> `OCR` -> `Advanced` -> `Text Region Min Probability`
 
 - **`Merge Distance Tolerance` (`merge_gamma`)**: distance tolerance for merging text regions.
-  - Current UI location: `Settings` -> `Recognition` -> `Advanced` -> `Merge Distance Tolerance`
+  - Current UI location: `Settings` -> `OCR` -> `Advanced` -> `Merge Distance Tolerance`
 
 - **`Merge Outlier Tolerance` (`merge_sigma`)**: outlier tolerance for merging text regions.
-  - Current UI location: `Settings` -> `Recognition` -> `Advanced` -> `Merge Outlier Tolerance`
+  - Current UI location: `Settings` -> `OCR` -> `Advanced` -> `Merge Outlier Tolerance`
 
 - **`Merge Edge Ratio Threshold` (`merge_edge_ratio_threshold`)**: edge-ratio threshold for region merging.
-  - Current UI location: `Settings` -> `Recognition` -> `Advanced` -> `Merge Edge Ratio Threshold`
+  - Current UI location: `Settings` -> `OCR` -> `Advanced` -> `Merge Edge Ratio Threshold`
 
 - **`Require Full Wrap In Special Pre-Merge` (`merge_special_require_full_wrap`)**: control whether model-label-assisted pre-merge is enabled.
-  - Current UI location: `Settings` -> `Recognition` -> `OCR` -> `Require Full Wrap In Special Pre-Merge`
+  - Current UI location: `Settings` -> `OCR` -> `Require Full Wrap In Special Pre-Merge`
   - Enabled by default:
     - run model-assisted pre-merge first
     - the `changfangtiao` group stays separate
