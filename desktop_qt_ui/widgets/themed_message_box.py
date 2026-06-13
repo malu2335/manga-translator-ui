@@ -4,11 +4,13 @@ import textwrap
 
 from main_view_parts.theme import apply_widget_stylesheet, get_current_theme_colors
 from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -28,7 +30,7 @@ def _dialog_tokens() -> dict[str, str]:
     colors = get_current_theme_colors()
     return {
         **colors,
-        "bg_dialog": colors["bg_panel"],
+        "bg_dialog": colors["bg_dropdown"],
         "border": colors["border_input"],
         "fg": colors["text_primary"],
         "fg_muted": colors["text_muted"],
@@ -48,34 +50,34 @@ def _dialog_tokens() -> dict[str, str]:
 def _error_dialog_stylesheet() -> str:
     t = _dialog_tokens()
     return f"""
-        QDialog#errorDialog {{
+        QFrame#errorDialogContainer {{
             background: {t["bg_dialog"]};
             border: 1px solid {t["border"]};
             border-radius: 14px;
         }}
-        QDialog#errorDialog QLabel {{
+        QFrame#errorDialogContainer QLabel {{
             background: transparent;
             color: {t["fg"]};
             font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
             font-size: 12px;
         }}
-        QDialog#errorDialog QLabel#errorDialogTitle {{
+        QFrame#errorDialogContainer QLabel#errorDialogTitle {{
             color: {t["fg"]};
             font-size: 13px;
             font-weight: 700;
         }}
-        QDialog#errorDialog QWidget#dialogHeader {{
+        QFrame#errorDialogContainer QWidget#dialogHeader {{
             background: transparent;
         }}
-        QDialog#errorDialog QLabel#dialogWindowTitle {{
+        QFrame#errorDialogContainer QLabel#dialogWindowTitle {{
             color: {t["fg"]};
             font-size: 12px;
             font-weight: 600;
         }}
-        QDialog#errorDialog QLabel#dialogIcon {{
+        QFrame#errorDialogContainer QLabel#dialogIcon {{
             background: transparent;
         }}
-        QDialog#errorDialog QToolButton#dialogCloseButton {{
+        QFrame#errorDialogContainer QToolButton#dialogCloseButton {{
             background: transparent;
             border: none;
             border-radius: 8px;
@@ -86,22 +88,22 @@ def _error_dialog_stylesheet() -> str:
             min-height: 28px;
             padding: 0;
         }}
-        QDialog#errorDialog QToolButton#dialogCloseButton:hover {{
+        QFrame#errorDialogContainer QToolButton#dialogCloseButton:hover {{
             background: {t["soft_bg"]};
             color: {t["fg"]};
         }}
-        QDialog#errorDialog QToolButton#dialogCloseButton:pressed {{
+        QFrame#errorDialogContainer QToolButton#dialogCloseButton:pressed {{
             background: {t["soft_pressed"]};
         }}
-        QDialog#errorDialog QScrollArea#errorDialogScroll {{
+        QFrame#errorDialogContainer QScrollArea#errorDialogScroll {{
             background: transparent;
             border: none;
         }}
-        QDialog#errorDialog QWidget#qt_scrollarea_viewport,
-        QDialog#errorDialog QScrollArea#errorDialogScroll > QWidget > QWidget {{
+        QFrame#errorDialogContainer QWidget#qt_scrollarea_viewport,
+        QFrame#errorDialogContainer QScrollArea#errorDialogScroll > QWidget > QWidget {{
             background: transparent;
         }}
-        QDialog#errorDialog QLabel#errorDialogDetails {{
+        QFrame#errorDialogContainer QLabel#errorDialogDetails {{
             background: transparent;
             color: {t["fg"]};
             border: none;
@@ -109,7 +111,7 @@ def _error_dialog_stylesheet() -> str:
             font-size: 12px;
             padding: 0;
         }}
-        QDialog#errorDialog QDialogButtonBox QPushButton {{
+        QFrame#errorDialogContainer QDialogButtonBox QPushButton {{
             min-width: 88px;
             min-height: 34px;
             border-radius: 8px;
@@ -120,22 +122,25 @@ def _error_dialog_stylesheet() -> str:
             border: 1px solid {t["soft_border"]};
             color: {t["soft_text"]};
         }}
-        QDialog#errorDialog QDialogButtonBox QPushButton:hover {{
+        QFrame#errorDialogContainer QDialogButtonBox QPushButton:hover {{
             background: {t["soft_hover"]};
             border-color: {t["border"]};
         }}
-        QDialog#errorDialog QDialogButtonBox QPushButton:pressed {{
+        QFrame#errorDialogContainer QDialogButtonBox QPushButton:pressed {{
             background: {t["soft_pressed"]};
         }}
-        QDialog#errorDialog QDialogButtonBox QPushButton[dialogDefault="true"] {{
-            background: {t["primary_bg"]};
-            border: 1px solid {t["primary_border"]};
-            color: {t["primary_text"]};
+        QFrame#errorDialogContainer QDialogButtonBox QPushButton[dialogDefault="true"] {{
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                        stop:0 {t["cta_gradient_start"]}, stop:1 {t["cta_gradient_end"]});
+            border: 1px solid {t["cta_border"]};
+            color: {t["cta_text"]};
         }}
-        QDialog#errorDialog QDialogButtonBox QPushButton[dialogDefault="true"]:hover {{
-            background: {t["primary_hover"]};
+        QFrame#errorDialogContainer QDialogButtonBox QPushButton[dialogDefault="true"]:hover {{
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                        stop:0 {t["cta_hover_start"]}, stop:1 {t["cta_hover_end"]});
+            border-color: {t["cta_border"]};
         }}
-        QDialog#errorDialog QDialogButtonBox QPushButton[dialogDefault="true"]:pressed {{
+        QFrame#errorDialogContainer QDialogButtonBox QPushButton[dialogDefault="true"]:pressed {{
             background: {t["primary_pressed"]};
         }}
     """
@@ -269,6 +274,7 @@ def show_error_dialog(
     dialog_parent = parent or QApplication.activeWindow()
     dialog = QDialog(dialog_parent)
     dialog.setWindowTitle(window_title)
+    dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
     dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.FramelessWindowHint)
     dialog.setModal(True)
     dialog.setSizeGripEnabled(True)
@@ -277,11 +283,29 @@ def show_error_dialog(
         Qt.WindowModality.WindowModal if dialog_parent is not None else Qt.WindowModality.ApplicationModal
     )
 
-    layout = QVBoxLayout(dialog)
+    # Top-level layout for drop shadow padding
+    top_layout = QVBoxLayout(dialog)
+    top_layout.setContentsMargins(12, 12, 12, 12)
+    top_layout.setSpacing(0)
+
+    # Styled container
+    container = QFrame(dialog)
+    container.setObjectName("errorDialogContainer")
+    top_layout.addWidget(container)
+
+    # Add drop shadow to the container
+    shadow = QGraphicsDropShadowEffect(dialog)
+    shadow.setBlurRadius(16)
+    shadow.setColor(QColor(0, 0, 0, 90))
+    shadow.setOffset(0, 4)
+    container.setGraphicsEffect(shadow)
+
+    # Layout for contents inside the container
+    layout = QVBoxLayout(container)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(12)
 
-    header = QWidget(dialog)
+    header = QWidget(container)
     header.setObjectName("dialogHeader")
     header_layout = QHBoxLayout(header)
     header_layout.setContentsMargins(0, 0, 0, 0)
@@ -304,9 +328,9 @@ def show_error_dialog(
     body_layout.setContentsMargins(0, 0, 0, 0)
     body_layout.setSpacing(14)
 
-    icon_pixmap = _icon_pixmap(dialog, icon)
+    icon_pixmap = _icon_pixmap(container, icon)
     if icon_pixmap is not None:
-        icon_label = QLabel(dialog)
+        icon_label = QLabel(container)
         icon_label.setObjectName("dialogIcon")
         icon_label.setPixmap(icon_pixmap)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
@@ -318,14 +342,14 @@ def show_error_dialog(
 
     normalized_heading = str(heading or "").strip()
     if normalized_heading:
-        summary_label = QLabel(normalized_heading, dialog)
+        summary_label = QLabel(normalized_heading, container)
         summary_label.setObjectName("errorDialogTitle")
         summary_label.setTextFormat(Qt.TextFormat.PlainText)
         summary_label.setWordWrap(True)
         summary_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         content_layout.addWidget(summary_label)
 
-    scroll_area = QScrollArea(dialog)
+    scroll_area = QScrollArea(container)
     scroll_area.setObjectName("errorDialogScroll")
     scroll_area.setWidgetResizable(True)
     scroll_area.setFrameShape(QFrame.Shape.NoFrame)
@@ -355,7 +379,7 @@ def show_error_dialog(
     if buttons == QMessageBox.StandardButton.NoButton:
         buttons = QMessageBox.StandardButton.Ok
 
-    button_box = QDialogButtonBox(parent=dialog)
+    button_box = QDialogButtonBox(parent=container)
     added_buttons = 0
     for message_button, dialog_button in _STANDARD_BUTTON_MAP:
         if buttons & message_button:
