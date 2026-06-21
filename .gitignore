@@ -277,3 +277,6 @@ manga-image-translator-ui-package-v2.2.0/
 
 # Local GitHub command presets
 .github/commands/
+
+# Local runtime config (excluded from push)
+manga_translator_config.json

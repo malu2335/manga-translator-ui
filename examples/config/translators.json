@@ -42,7 +42,12 @@
     "optional_env_vars": [
       "GEMINI_API_KEY",
       "GEMINI_MODEL",
-      "GEMINI_API_BASE"
+      "GEMINI_API_BASE",
+      "GEMINI_VERTEX_PROJECT_ID",
+      "GEMINI_VERTEX_LOCATION",
+      "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON",
+      "GEMINI_VERTEX_ACCESS_TOKEN",
+      "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT"
     ]
   },
   "gemini_hq": {
@@ -52,7 +57,12 @@
     "optional_env_vars": [
       "GEMINI_API_KEY",
       "GEMINI_MODEL",
-      "GEMINI_API_BASE"
+      "GEMINI_API_BASE",
+      "GEMINI_VERTEX_PROJECT_ID",
+      "GEMINI_VERTEX_LOCATION",
+      "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON",
+      "GEMINI_VERTEX_ACCESS_TOKEN",
+      "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT"
     ]
   },
   "sakura": {

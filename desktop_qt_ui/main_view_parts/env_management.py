@@ -116,7 +116,8 @@ def create_env_widgets(self, keys: list, current_values: dict):
             self.env_layout.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
             self.env_layout.addWidget(display_widget, row, 1)
 
-            if _is_secret_env_key(key):
+            # ACCESS_TOKEN（如 Vertex）不走「测试连接」按钮，避免误点
+            if _is_secret_env_key(key) and "ACCESS_TOKEN" not in str(key).upper():
                 test_button = QPushButton(self._t("Test"))
                 test_button.setProperty("chipButton", True)
                 test_button.setFixedWidth(60)
@@ -259,6 +260,11 @@ def get_env_default_placeholder(self, key: str) -> str:
         "OPENAI_MODEL": "gpt-4o",
         "CUSTOM_OPENAI_MODEL": "qwen2.5:7b",
         "GEMINI_MODEL": "gemini-1.5-flash-002",
+        "GEMINI_VERTEX_PROJECT_ID": "my-gcp-project-id",
+        "GEMINI_VERTEX_LOCATION": "us-central1",
+        "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON": "/path/to/service-account.json",
+        "GEMINI_VERTEX_ACCESS_TOKEN": "ya29...（可选，短期 OAuth 令牌）",
+        "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT": "true 或留空",
         "GROQ_MODEL": "mixtral-8x7b-32768",
         "DEEPSEEK_MODEL": "deepseek-chat",
         "OPENAI_API_KEY": key_placeholder,
@@ -279,6 +285,22 @@ def get_env_default_placeholder(self, key: str) -> str:
             break
 
     return default_placeholders.get(normalized_key, "")
+
+
+def flush_pending_env_saves(self):
+    """将 API 页所有输入框的当前值立即写入 .env 并刷新 os.environ（取消防抖）。"""
+    if getattr(self, "_env_debounce_timer", None) and self._env_debounce_timer.isActive():
+        self._env_debounce_timer.stop()
+        try:
+            self._env_debounce_timer.timeout.disconnect()
+        except TypeError:
+            pass
+
+    for key, (_label, widget) in getattr(self, "env_widgets", {}).items():
+        try:
+            self.controller.save_env_var(key, widget.text())
+        except Exception:
+            pass
 
 
 def debounced_save_env_var(self, key: str, text: str):
@@ -1187,11 +1209,7 @@ def on_preset_changed(self, new_preset_name: str):
     if old_preset_name == new_preset_name:
         return
 
-    if self._env_debounce_timer.isActive():
-        self._env_debounce_timer.stop()
-        for key, (label, widget) in self.env_widgets.items():
-            current_value = _get_env_widget_value(widget)
-            self.controller.save_env_var(key, current_value)
+    self._flush_pending_env_saves()
 
     if old_preset_name:
         existing_presets = self.controller.get_presets_list()

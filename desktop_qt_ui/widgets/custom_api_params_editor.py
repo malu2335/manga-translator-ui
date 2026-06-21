@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from utils.wheel_filter import NoWheelComboBox as QComboBox
+from utils.monospace_font import monospace_qfont
 
 from manga_translator.custom_api_params import (
     CUSTOM_API_PARAM_SECTIONS,
@@ -264,9 +265,7 @@ def _dialog_stylesheet() -> str:
 
 
 def _monospace_font(size: int = 11) -> QFont:
-    font = QFont("Consolas", size)
-    font.setStyleHint(QFont.StyleHint.Monospace)
-    return font
+    return monospace_qfont(size)
 
 
 def _infer_type(value: Any) -> str:

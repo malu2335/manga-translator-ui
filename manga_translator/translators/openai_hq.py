@@ -16,6 +16,7 @@ from .common import (
     AsyncOpenAICurlCffi,
     CommonTranslator,
     draw_text_boxes_on_image,
+    is_openai_fatal_dns_or_resolve_error,
     merge_glossary_to_file,
     parse_hq_response,
     validate_openai_response,
@@ -249,18 +250,21 @@ class OpenAIHighQualityTranslator(CommonTranslator):
             force_recreate: 是否强制重建客户端（用于重试时断开旧连接）
         """
         if force_recreate and self.client:
-            # 关闭旧客户端，断开连接
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # 如果事件循环正在运行，创建任务异步关闭
-                    asyncio.create_task(self.client.close())
-                else:
-                    # 否则同步关闭
-                    loop.run_until_complete(self.client.close())
-            except Exception as e:
-                self.logger.debug(f"关闭旧客户端时出错（可忽略）: {e}")
-            self.client = None
+                asyncio.get_running_loop()
+            except RuntimeError:
+                try:
+                    loop = asyncio.get_event_loop()
+                    if not loop.is_running() and not loop.is_closed():
+                        loop.run_until_complete(self.client.close())
+                except Exception as e:
+                    self.logger.debug(f"关闭旧客户端时出错（可忽略）: {e}")
+                self.client = None
+            else:
+                self.client = None
+                raise RuntimeError(
+                    "OpenAIHighQualityTranslator: 事件循环运行中请使用 await _setup_client_async(force_recreate=True)"
+                )
 
         if not self.client:
             # 强制使用 curl_cffi 客户端（不回退标准 SDK）
@@ -273,14 +277,36 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 stream_timeout=300.0
             )
             self.logger.debug("已创建新的OpenAI HQ客户端连接（强制 curl_cffi 模式）")
+
+    async def _setup_client_async(self, force_recreate: bool = False):
+        """在异步上下文中设置客户端；重试时必须 await 关闭旧连接，避免套接字/FD 泄漏。"""
+        if force_recreate and self.client:
+            try:
+                await self.client.close()
+            except Exception as e:
+                self.logger.debug(f"关闭旧客户端时出错（可忽略）: {e}")
+            finally:
+                self.client = None
+        if not self.client:
+            self.client = AsyncOpenAICurlCffi(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                default_headers=BROWSER_HEADERS,
+                impersonate="chrome110",
+                timeout=600.0,
+                stream_timeout=300.0,
+            )
+            self.logger.debug("已创建新的OpenAI HQ客户端连接（强制 curl_cffi 模式）")
     
     async def _cleanup(self):
-        """清理资源"""
+        """清理资源（关闭 curl 会话，避免批量翻译时 FD 泄漏）。"""
         if self.client:
             try:
                 await self.client.close()
             except Exception:
                 pass  # 忽略清理时的错误
+            finally:
+                self.client = None
 
     async def _abort_inflight_request(self):
         """取消时中断当前请求连接，避免长时间阻塞。"""
@@ -479,6 +505,12 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                             self._finish_stream_inline()
                             streamed_text = None
                             streamed_finish_reason = None
+                            if is_openai_fatal_dns_or_resolve_error(stream_error):
+                                try:
+                                    await self._abort_inflight_request()
+                                except Exception:
+                                    pass
+                                raise stream_error
                             self.logger.warning(f"流式请求不可用，已回退普通请求: {stream_error}")
                             response = await self._await_with_cancel_polling(
                                 self.client.chat.completions.create(**request_params),
@@ -579,7 +611,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
 
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
-                        self._setup_client(force_recreate=True)
+                        await self._setup_client_async(force_recreate=True)
                         await self._sleep_with_cancel_polling(2)
                         continue
 
@@ -599,7 +631,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
 
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
-                        self._setup_client(force_recreate=True)
+                        await self._setup_client_async(force_recreate=True)
                         await self._sleep_with_cancel_polling(2)
                         continue
 
@@ -628,7 +660,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                         
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
-                        self._setup_client(force_recreate=True)
+                        await self._setup_client_async(force_recreate=True)
                         await self._sleep_with_cancel_polling(2)
                         continue
 
@@ -665,7 +697,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 
                 # 重试前断开连接，重建客户端
                 self.logger.info("重试前断开旧连接，重建客户端...")
-                self._setup_client(force_recreate=True)
+                await self._setup_client_async(force_recreate=True)
                 await self._sleep_with_cancel_polling(1)
 
             except APIRotationExhaustedError:
@@ -696,7 +728,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                     
                     # 重试前断开连接，重建客户端
                     self.logger.info("重试前断开旧连接，重建客户端...")
-                    self._setup_client(force_recreate=True)
+                    await self._setup_client_async(force_recreate=True)
                     await self._sleep_with_cancel_polling(1)
                     
             except Exception as e:
@@ -713,14 +745,24 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                      send_images = False
 
                 self.logger.warning(f"OpenAI高质量翻译出错 ({log_attempt}): {e}")
-                
+                if is_openai_fatal_dns_or_resolve_error(e):
+                    self.logger.error(
+                        "当前错误属于 API 地址、DNS、或本机 TLS/OpenSSL 与 curl_cffi 不匹配等问题，"
+                        "继续重试通常无效且会耗尽系统资源。请核对 API Base；若在 conda 中，可尝试"
+                        "重装 curl_cffi / 统一 OpenSSL 版本或使用官方 Python 虚拟环境。"
+                    )
+                    try:
+                        await self._abort_inflight_request()
+                    except Exception:
+                        pass
+                    raise
                 if not is_infinite and attempt >= max_retries:
                     self.logger.error("OpenAI翻译在多次重试后仍然失败。即将终止程序。")
                     raise last_exception
                 
                 # 重试前断开连接，重建客户端
                 self.logger.info("重试前断开旧连接，重建客户端...")
-                self._setup_client(force_recreate=True)
+                await self._setup_client_async(force_recreate=True)
                 await self._sleep_with_cancel_polling(1)
 
         # 只有在所有重试都失败后才会执行到这里

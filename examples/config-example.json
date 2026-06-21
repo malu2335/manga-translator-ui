@@ -29,9 +29,9 @@
     "convert_to_simplified": false
   },
   "ocr": {
-    "ocr": "48px",
+    "ocr": "paddleocr_korean",
     "use_hybrid_ocr": false,
-    "secondary_ocr": "mocr",
+    "secondary_ocr": "48px_ctc",
     "min_text_length": 0,
     "ignore_bubble": 0.0,
     "use_model_bubble_filter": false,
@@ -112,7 +112,7 @@
   },
   "cli": {
     "verbose": false,
-    "attempts": 3,
+    "attempts": -1,
     "ignore_errors": false,
     "use_gpu": true,
     "disable_onnx_gpu": false,

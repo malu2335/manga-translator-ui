@@ -8,7 +8,6 @@ import os
 from typing import Any, Callable, Dict, List, Optional
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -28,6 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from widgets.hover_hint import install_hover_hint
+from utils.monospace_font import monospace_qfont
 
 from main_view_parts.theme import (
     build_section_icon_button_stylesheet,
@@ -844,9 +844,7 @@ class PromptPreviewPanel(QWidget):
 
         text_edit = QPlainTextEdit(raw)
         text_edit.setReadOnly(True)
-        font = QFont("Consolas", 11)
-        font.setStyleHint(QFont.StyleHint.Monospace)
-        text_edit.setFont(font)
+        text_edit.setFont(monospace_qfont(11))
         text_edit.setStyleSheet(_text_edit_style())
         layout.addWidget(text_edit, 1)
 
@@ -924,9 +922,7 @@ def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit
     """统一风格的文本编辑框。"""
     te = QPlainTextEdit(text)
     te.setReadOnly(read_only)
-    font = QFont("Consolas", 11)
-    font.setStyleHint(QFont.StyleHint.Monospace)
-    te.setFont(font)
+    te.setFont(monospace_qfont(11))
     te.setStyleSheet(_text_edit_style())
     te.setTabStopDistance(28)
     return te

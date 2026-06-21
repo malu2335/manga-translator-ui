@@ -82,6 +82,7 @@ class MainView(QWidget):
     _refresh_env_api_groups = main_view_dynamic._refresh_env_api_groups
     _get_env_default_placeholder = main_view_env.get_env_default_placeholder
     _debounced_save_env_var = main_view_env.debounced_save_env_var
+    _flush_pending_env_saves = main_view_env.flush_pending_env_saves
     _on_open_custom_api_params_file = main_view_env.on_open_custom_api_params_file
     _refresh_api_feature_selectors = main_view_env.refresh_api_feature_selectors
     _on_api_feature_combo_changed = main_view_env.on_api_feature_combo_changed

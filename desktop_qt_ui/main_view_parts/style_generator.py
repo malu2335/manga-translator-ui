@@ -463,7 +463,7 @@ def generate_main_view_style(theme: str = "dark") -> str:
         #settings_desc_key {{
             color: {c["text_desc_key"]};
             font-size: 11px;
-            font-family: "Consolas", "Microsoft YaHei UI", monospace;
+            font-family: "Menlo", "Monaco", "Consolas", "Microsoft YaHei UI", monospace;
             padding: 2px 0px;
         }}
         #settings_desc_text {{

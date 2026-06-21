@@ -289,6 +289,18 @@ class TranslatorConfig(BaseModel):
     """User-provided API base URL (overrides environment variable)"""
     user_api_model: Optional[str] = None
     """User-provided model name (overrides environment variable)"""
+
+    # Vertex AI（Gemini on Vertex）；与 GEMINI_VERTEX_* 环境变量二选一或叠加（配置优先于空 env）
+    vertex_project_id: Optional[str] = None
+    """GCP 项目 ID；非空时启用 Vertex 原生 REST（与 AI Studio /v1beta 路径不同）"""
+    vertex_location: Optional[str] = None
+    """区域代码，如 us-central1；global 表示使用 global 端点（常配合 aiplatform.googleapis.com）"""
+    vertex_service_account_json: Optional[str] = None
+    """服务账号 JSON 密钥文件路径；为空则尝试 Application Default Credentials"""
+    vertex_access_token: Optional[str] = None
+    """短期 OAuth access token（可选；设置则跳过服务账号刷新）"""
+    vertex_use_global_endpoint: bool = False
+    """为 True 时使用 https://aiplatform.googleapis.com 作为 API 根（通常与 location=global 同用）"""
     
     # API请求频率限制配置
     max_requests_per_minute: int = 0

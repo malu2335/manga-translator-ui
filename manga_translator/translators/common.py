@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import inspect
 import json
+import os
 import re
 import shutil
 import sys
@@ -421,6 +422,59 @@ class AsyncOpenAICurlCffi:
         await self.close()
 
 
+def _walk_exception_chain(exc: BaseException, *, max_hops: int = 16):
+    """遍历 __cause__ / __context__，覆盖 curl_cffi 包装的 DNSError 等链式异常。"""
+    seen: set[int] = set()
+    cur: Optional[BaseException] = exc
+    for _ in range(max_hops):
+        if cur is None:
+            break
+        cid = id(cur)
+        if cid in seen:
+            break
+        seen.add(cid)
+        yield cur
+        nxt = getattr(cur, "__cause__", None)
+        if nxt is None:
+            nxt = getattr(cur, "__context__", None)
+        cur = nxt
+
+
+def is_openai_fatal_dns_or_resolve_error(exc: BaseException) -> bool:
+    """
+    非瞬时传输/环境类错误：重试通常无效；在 attempts=-1 时会耗尽资源。
+
+    含：DNS、(3) URL 无主机、(6) 无法解析主机；以及 conda/OpenSSL 与 curl_cffi
+    不匹配时常见的「curl (35) + OPENSSL_internal + invalid library」握手失败。
+    """
+    needles = (
+        "could not resolve host",
+        "curl: (6)",
+        "curl: (3)",
+        "no host part in the url",
+        "name or service not known",
+        "nodename nor servname provided",
+        "getaddrinfo failed",
+        "failed to resolve",
+        "temporary failure in name resolution",
+        "no such host is known",  # Windows
+    )
+    for e in _walk_exception_chain(exc):
+        code = getattr(e, "code", None)
+        if code in (3, 6):
+            return True
+        if type(e).__name__.lower() == "dnserror":
+            return True
+        msg = str(e).lower()
+        if any(n in msg for n in needles):
+            return True
+        if "invalid library" in msg and (
+            "openssl" in msg or "openssl_internal" in msg or "curl: (35)" in msg
+        ):
+            return True
+    return False
+
+
 class _OpenAIResponse:
     """模拟 OpenAI SDK 的响应对象"""
 
@@ -500,6 +554,243 @@ class _ModelsResponse:
 # AsyncGemini 客户端包装器 - 使用 curl_cffi 绕过 TLS 指纹检测
 # ============================================================================
 
+GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT = "https://generativelanguage.googleapis.com"
+"""Google AI Studio / Gemini Developer API 默认 REST 根。"""
+
+GEMINI_API_BASE_VERTEX_AIPLATFORM_GLOBAL = "https://aiplatform.googleapis.com"
+"""Vertex 全局 API 主机（与 ``GEMINI_VERTEX_LOCATION=global`` 联用）。"""
+
+
+def normalize_gemini_api_base_for_client(url: Optional[str]) -> str:
+    """Strip 后非空则返回规范化根；空则使用 generativelanguage 默认主机。"""
+    s = (url or "").strip().rstrip("/")
+    return s if s else GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT
+
+
+def is_gemini_generativelanguage_default_base(url: Optional[str]) -> bool:
+    """是否仅为 Google AI Studio 默认主机（隐式 base_url 与显式传参等价）。"""
+    return (
+        normalize_gemini_api_base_for_client(url).lower()
+        == GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT.lower()
+    )
+
+
+def _gemini_rest_parse_hostname(url: str) -> str:
+    from urllib.parse import urlparse
+
+    try:
+        p = urlparse((url or "").strip())
+        h = (p.netloc or "").lower()
+        return h.split(":")[0] if h else ""
+    except Exception:
+        return ""
+
+
+def _normalize_gemini_rest_base_url(base_url: str) -> str:
+    """
+    REST 会在 base 后拼接 ``/v1beta/...``；若用户把 ``/v1beta`` 写在 base 末尾会导致
+    ``.../v1beta/v1beta/models`` 从而 404。
+
+    仅对 ``generativelanguage.googleapis.com`` 与全局 ``aiplatform.googleapis.com``
+    去掉误重复的 ``/v1beta``、``/v1``，避免误伤区域 Vertex 域名（如 *-aiplatform.googleapis.com）上的路径。
+    """
+    u = (base_url or "").strip().rstrip("/")
+    if not u:
+        return u
+    host = _gemini_rest_parse_hostname(u)
+    if host not in (
+        "generativelanguage.googleapis.com",
+        "aiplatform.googleapis.com",
+    ):
+        return u
+    while True:
+        lu = u.lower()
+        if lu.endswith("/v1beta"):
+            u = u[: -len("/v1beta")].rstrip("/")
+            continue
+        if lu.endswith("/v1"):
+            u = u[: -len("/v1")].rstrip("/")
+            continue
+        break
+    return u
+
+
+class GeminiRestConfigError(ValueError):
+    """Gemini REST 客户端 Base / Vertex 环境变量不匹配。"""
+
+
+def is_gemini_vertex_aiplatform_host(url: Optional[str]) -> bool:
+    """Base 是否指向 Google Vertex AI 的 aiplatform 主机（全局或 ``{region}-aiplatform``）。"""
+    host = _gemini_rest_parse_hostname(url or "")
+    if not host:
+        return False
+    if host == "aiplatform.googleapis.com":
+        return True
+    if host.endswith(".aiplatform.googleapis.com"):
+        return True
+    # 区域端点形如 us-central1-aiplatform.googleapis.com（无额外子域点前缀）
+    if host.endswith("-aiplatform.googleapis.com"):
+        return True
+    return False
+
+
+def should_use_vertex_api_key_auth(
+    base_url: Optional[str],
+    *,
+    api_key: Optional[str] = None,
+) -> bool:
+    """Vertex Express / API Key：``aiplatform`` 主机 + ``GEMINI_API_KEY``，REST 使用 ``?key=``。"""
+    normalized = normalize_gemini_api_base_for_client(base_url)
+    return is_gemini_vertex_aiplatform_host(normalized) and bool((api_key or "").strip())
+
+
+def should_enable_gemini_vertex_mode(
+    base_url: Optional[str],
+    *,
+    vertex_project_id: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> bool:
+    """
+    Base 指向 aiplatform 时启用 Vertex REST（API Key 或 OAuth 二选一）。
+    Base 为 AI Studio（generativelanguage）且已有 API Key 时走 AI Studio，避免误用 ADC。
+    """
+    normalized = normalize_gemini_api_base_for_client(base_url)
+    if is_gemini_vertex_aiplatform_host(normalized):
+        if (api_key or "").strip():
+            return True
+        if (vertex_project_id or "").strip():
+            return True
+        return False
+    if (api_key or "").strip() and is_gemini_generativelanguage_default_base(normalized):
+        return False
+    return False
+
+
+def assert_gemini_rest_base_matches_vertex_mode(
+    base_url: str,
+    *,
+    vertex_mode: bool,
+) -> None:
+    """
+    非 Vertex 模式下禁止将 Base 设为 aiplatform 主机，否则会误走 AI Studio ``/v1beta/models`` 并 404。
+    自定义反代（非 ``*aiplatform.googleapis.com``）不在此校验范围内。
+    """
+    if vertex_mode:
+        return
+    if not is_gemini_vertex_aiplatform_host(base_url):
+        return
+    raise GeminiRestConfigError(
+        "GEMINI_API_BASE（或自定义 Base）指向 Vertex 主机（aiplatform.googleapis.com），"
+        "但未配置 Vertex 鉴权，请求会误用 AI Studio 路径 /v1beta/models 并返回 404。\n"
+        "• Vertex + API Key（Express）：填写 GEMINI_API_KEY（控制台 Express / API 密钥），"
+        "Base 保持 aiplatform；无需项目 ID。\n"
+        "• Vertex + OAuth：设置 GEMINI_VERTEX_PROJECT_ID，并配置 GEMINI_VERTEX_SERVICE_ACCOUNT_JSON、"
+        "GEMINI_VERTEX_ACCESS_TOKEN 或 gcloud ADC；可选 GEMINI_VERTEX_LOCATION。\n"
+        f"• AI Studio：将 Base 改为 {GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT}，"
+        "并使用 GEMINI_API_KEY（AIza…）。"
+    )
+
+
+def _gemini_http_error_extra_hint(status_code: int, response_text: str) -> str:
+    """404 且返回 HTML 或正文提到 /v1beta/models 时，追加 Base URL 配置说明。"""
+    if status_code != 404:
+        return ""
+    t = response_text or ""
+    tl = t.lower()
+    if "<!doctype html" not in tl and "/v1beta/models" not in t:
+        return ""
+    return (
+        " [Gemini 配置] 返回了网页 404：请核对 GEMINI_API_BASE；若未配置 GEMINI_VERTEX_PROJECT_ID，"
+        "Base 指向 aiplatform 却仍走 /v1beta/models 会失败。Vertex 原生请设置 GEMINI_VERTEX_PROJECT_ID 等变量。"
+    )
+
+
+def read_gemini_vertex_env() -> Dict[str, Any]:
+    """从进程环境读取 ``GEMINI_VERTEX_*``（调用方应已 ``load_dotenv``）。"""
+    pid = (os.getenv("GEMINI_VERTEX_PROJECT_ID") or "").strip()
+    if not pid:
+        return {}
+    return {
+        "vertex_project_id": pid,
+        "vertex_location": (os.getenv("GEMINI_VERTEX_LOCATION") or "us-central1").strip(),
+        "vertex_service_account_json": (os.getenv("GEMINI_VERTEX_SERVICE_ACCOUNT_JSON") or "").strip() or None,
+        "vertex_access_token": (os.getenv("GEMINI_VERTEX_ACCESS_TOKEN") or "").strip() or None,
+        "vertex_use_global_endpoint": os.getenv(
+            "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT", ""
+        ).strip().lower() in ("1", "true", "yes", "on"),
+    }
+
+
+def gemini_vertex_client_kwargs_from_env(
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """读取 ``GEMINI_VERTEX_*``；仅在与 Base 匹配 Vertex 主机时返回 kwargs。"""
+    env = read_gemini_vertex_env()
+    if not env:
+        return {}
+    resolved_base = base_url if base_url is not None else os.getenv("GEMINI_API_BASE")
+    resolved_key = api_key if api_key is not None else os.getenv("GEMINI_API_KEY")
+    if not should_enable_gemini_vertex_mode(
+        resolved_base,
+        vertex_project_id=env["vertex_project_id"],
+        api_key=resolved_key,
+    ):
+        return {}
+    import logging
+
+    pid = env["vertex_project_id"]
+    preview = f"{pid[:8]}…" if len(pid) > 8 else pid
+    logging.getLogger(__name__).debug(
+        "GEMINI_VERTEX_PROJECT_ID loaded from env (project=%s location=%s)",
+        preview,
+        env.get("vertex_location"),
+    )
+    return env
+
+
+def sync_gemini_translator_vertex_from_env(translator) -> bool:
+    """
+    将 ``GEMINI_VERTEX_*`` 同步到 Gemini 翻译器实例属性。
+    在 UI 更新 .env 之后、``parse_args`` / ``_setup_client`` 之前调用。
+    """
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(override=True)
+    except Exception:
+        pass
+
+    changed = False
+    new_pid = (os.getenv("GEMINI_VERTEX_PROJECT_ID") or "").strip() or None
+    new_loc = (os.getenv("GEMINI_VERTEX_LOCATION") or "us-central1").strip() or "us-central1"
+    new_sa = (os.getenv("GEMINI_VERTEX_SERVICE_ACCOUNT_JSON") or "").strip() or None
+    new_tok = (os.getenv("GEMINI_VERTEX_ACCESS_TOKEN") or "").strip() or None
+    new_global = os.getenv("GEMINI_VERTEX_USE_GLOBAL_ENDPOINT", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    if new_pid != getattr(translator, "vertex_project_id", None):
+        translator.vertex_project_id = new_pid
+        changed = True
+    if new_loc != getattr(translator, "vertex_location", None):
+        translator.vertex_location = new_loc
+        changed = True
+    if new_sa != getattr(translator, "vertex_service_account_json", None):
+        translator.vertex_service_account_json = new_sa
+        changed = True
+    if new_tok != getattr(translator, "vertex_access_token", None):
+        translator.vertex_access_token = new_tok
+        changed = True
+    if new_global != getattr(translator, "vertex_use_global_endpoint", False):
+        translator.vertex_use_global_endpoint = new_global
+        changed = True
+    return changed
+
+
 class AsyncGeminiCurlCffi:
     """
     异步 Gemini 客户端包装器，使用 curl_cffi 绕过 TLS 指纹检测
@@ -530,18 +821,36 @@ class AsyncGeminiCurlCffi:
             import urllib.parse
             encoded_model = urllib.parse.quote(model, safe='')
 
-            # 构建 URL - Gemini API 格式
-            url = f"{self.parent.base_url}/v1beta/models/{encoded_model}:generateContent"
-
-            # 实际请求使用完整的 API Key
-            request_headers = {
-                "Content-Type": "application/json",
-                "x-goog-api-key": self.parent.api_key
-            }
-
-            # 合并默认请求头
-            if self.parent.default_headers:
-                request_headers.update(self.parent.default_headers)
+            if self.parent._vertex_mode:
+                if self.parent._vertex_api_key_mode:
+                    url = self.parent._url_with_vertex_api_key(
+                        self.parent._vertex_publishers_action_url(model, "generateContent")
+                    )
+                    request_headers = {"Content-Type": "application/json"}
+                    if self.parent.default_headers:
+                        for k, v in self.parent.default_headers.items():
+                            lk = str(k).lower()
+                            if lk in ("authorization", "content-type", "x-goog-api-key"):
+                                continue
+                            request_headers.setdefault(k, v)
+                else:
+                    url = self.parent._vertex_generate_content_url(model)
+                    request_headers = await self.parent._vertex_auth_headers_async()
+                    request_headers.setdefault("Content-Type", "application/json")
+                    if self.parent.default_headers:
+                        for k, v in self.parent.default_headers.items():
+                            lk = str(k).lower()
+                            if lk in ("authorization", "content-type"):
+                                continue
+                            request_headers.setdefault(k, v)
+            else:
+                url = f"{self.parent.base_url}/v1beta/models/{encoded_model}:generateContent"
+                request_headers = {
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": self.parent.api_key,
+                }
+                if self.parent.default_headers:
+                    request_headers.update(self.parent.default_headers)
 
             # 构建请求数据
             data = {}
@@ -670,6 +979,7 @@ class AsyncGeminiCurlCffi:
                         f"{error_msg}: "
                         f"{summarize_response_text(response.text, empty_placeholder='(empty response)')}"
                     )
+                error_msg += _gemini_http_error_extra_hint(response.status_code, response.text)
                 raise Exception(error_msg)
 
             # 检查响应内容类型和内容
@@ -714,10 +1024,12 @@ class AsyncGeminiCurlCffi:
                 ) as response:
                     if response.status_code != 200:
                         text = await response.atext()
-                        raise Exception(
+                        err = (
                             f"Gemini API request failed with status {response.status_code}: "
                             f"{summarize_response_text(text)}"
                         )
+                        err += _gemini_http_error_extra_hint(response.status_code, text)
+                        raise Exception(err)
 
                     async for raw_line in response.aiter_lines():
                         if isinstance(raw_line, (bytes, bytearray)):
@@ -736,16 +1048,38 @@ class AsyncGeminiCurlCffi:
 
         async def list(self):
             """获取可用模型列表"""
-            url = f"{self.parent.base_url}/v1beta/models"
-
-            headers = {
-                "Content-Type": "application/json",
-                "x-goog-api-key": self.parent.api_key
-            }
-
-            # 合并默认请求头
-            if self.parent.default_headers:
-                headers.update(self.parent.default_headers)
+            if self.parent._vertex_mode:
+                if self.parent._vertex_api_key_mode:
+                    # v1 路径在全局 aiplatform 上返回 HTML 404；v1beta1 为文档中的 publishers.models.list
+                    list_path = "/v1beta1/publishers/google/models"
+                    url = self.parent._url_with_vertex_api_key(
+                        f"{self.parent._vertex_api_root}{list_path}"
+                    )
+                    headers = {"Content-Type": "application/json"}
+                    if self.parent.default_headers:
+                        for k, v in self.parent.default_headers.items():
+                            lk = str(k).lower()
+                            if lk in ("authorization", "content-type", "x-goog-api-key"):
+                                continue
+                            headers.setdefault(k, v)
+                else:
+                    url = self.parent._vertex_list_models_url()
+                    headers = await self.parent._vertex_auth_headers_async()
+                    headers.setdefault("Content-Type", "application/json")
+                    if self.parent.default_headers:
+                        for k, v in self.parent.default_headers.items():
+                            lk = str(k).lower()
+                            if lk in ("authorization", "content-type"):
+                                continue
+                            headers.setdefault(k, v)
+            else:
+                url = f"{self.parent.base_url}/v1beta/models"
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": self.parent.api_key,
+                }
+                if self.parent.default_headers:
+                    headers.update(self.parent.default_headers)
 
             # 发送异步请求
             response = await self.parent.session.get(
@@ -755,6 +1089,22 @@ class AsyncGeminiCurlCffi:
             )
 
             if response.status_code != 200:
+                if (
+                    self.parent._vertex_mode
+                    and getattr(self.parent, "_vertex_api_key_mode", False)
+                    and response.status_code in (401, 403)
+                ):
+                    try:
+                        err_obj = response.json().get("error") or {}
+                        em = str(err_obj.get("message", "")).lower()
+                        if "api keys are not supported" in em:
+                            raise Exception(
+                                "Vertex「获取模型列表」不接受 API Key（Google：API keys are not supported）。"
+                                "翻译仍可填模型名使用 generateContent；请手动输入模型，例如 gemini-2.5-flash。"
+                            )
+                    except Exception as _list_exc:
+                        if "Vertex「获取模型列表」" in str(_list_exc):
+                            raise
                 print(f"[AsyncGeminiCurlCffi] List Error - URL: {url}")
                 print(f"[AsyncGeminiCurlCffi] List Error - Status: {response.status_code}")
                 print(f"[AsyncGeminiCurlCffi] List Error - Response: {summarize_response_text(response.text)}")
@@ -765,6 +1115,7 @@ class AsyncGeminiCurlCffi:
                         error_msg = f"{error_msg}: {error_data['error'].get('message', '')}"
                 except Exception:
                     error_msg = f"{error_msg}: {summarize_response_text(response.text)}"
+                error_msg += _gemini_http_error_extra_hint(response.status_code, response.text)
                 raise Exception(error_msg)
 
             # 检查响应内容类型
@@ -781,29 +1132,108 @@ class AsyncGeminiCurlCffi:
             # 返回模型列表
             return _GeminiModelsResponse(result)
 
-    def __init__(self, api_key, base_url="https://generativelanguage.googleapis.com",
-                 default_headers=None, impersonate="chrome110", timeout=600, stream_timeout=300):
+    def __init__(
+        self,
+        api_key,
+        base_url=GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT,
+        default_headers=None,
+        impersonate="chrome110",
+        timeout=600,
+        stream_timeout=300,
+        *,
+        vertex_project_id: Optional[str] = None,
+        vertex_location: Optional[str] = None,
+        vertex_service_account_json: Optional[str] = None,
+        vertex_access_token: Optional[str] = None,
+        vertex_use_global_endpoint: bool = False,
+    ):
         """
-        初始化异步客户端
-
         Args:
-            api_key: Gemini API 密钥
-            base_url: API 基础 URL
-            default_headers: 默认请求头
-            impersonate: 模拟的浏览器类型 (chrome110, chrome120, safari15_5 等)
-            timeout: 非流式请求超时时间（秒）
-            stream_timeout: 流式 HTTP 请求超时时间（秒）
+            api_key: AI Studio 或 Vertex Express 的 API Key；Vertex OAuth 模式下可为空（改用 Bearer）。
+            base_url: AI Studio 默认主机，或已包含 ``*aiplatform.googleapis.com`` 的 Vertex 服务根。
+            vertex_project_id: 非空时启用 Vertex，对应环境变量 ``GEMINI_VERTEX_PROJECT_ID``。
+            vertex_location: 区域或 ``global``。
+            vertex_service_account_json: 服务账号 JSON 路径；为空则尝试 Application Default Credentials。
+            vertex_access_token: 可选短期 OAuth access token（跳过刷新逻辑）。
+            vertex_use_global_endpoint: 为 True 时使用 ``https://aiplatform.googleapis.com``（常与 location=global）。
         """
-        self.api_key = api_key
-        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key or ""
+        _raw_base = (base_url or "").strip().rstrip("/")
+        self.base_url = _normalize_gemini_rest_base_url(_raw_base)
+        if self.base_url != _raw_base:
+            print(
+                f"[AsyncGeminiCurlCffi] Normalized GEMINI API base: {_raw_base!r} -> {self.base_url!r}"
+            )
         self.default_headers = default_headers or {}
         self.timeout = timeout
         self.stream_timeout = stream_timeout
         self.impersonate = impersonate
 
+        vp = (vertex_project_id or "").strip()
+        self._vertex_api_key_mode = should_use_vertex_api_key_auth(
+            self.base_url,
+            api_key=self.api_key,
+        )
+        self._vertex_oauth_mode = (
+            should_enable_gemini_vertex_mode(
+                self.base_url,
+                vertex_project_id=vp,
+                api_key=self.api_key,
+            )
+            and not self._vertex_api_key_mode
+            and bool(vp)
+        )
+        self._vertex_mode = self._vertex_api_key_mode or self._vertex_oauth_mode
+        if vp and not self._vertex_mode:
+            if is_gemini_generativelanguage_default_base(self.base_url) and (self.api_key or "").strip():
+                print(
+                    "[AsyncGeminiCurlCffi] 已填写 GEMINI_VERTEX_PROJECT_ID，但 Base 为 AI Studio 且已配置 "
+                    "GEMINI_API_KEY：将使用 API Key 模式（忽略 Vertex 项目 ID）。"
+                    " 若需 Vertex，请将 GEMINI_API_BASE 改为 aiplatform 并配置服务账号或 OAuth。"
+                )
+            elif is_gemini_generativelanguage_default_base(self.base_url):
+                print(
+                    "[AsyncGeminiCurlCffi] 已填写 GEMINI_VERTEX_PROJECT_ID，但 Base 为 AI Studio 地址："
+                    "请填写 GEMINI_API_KEY，或将 Base 改为 Vertex（aiplatform）并配置 OAuth。"
+                )
+        self._vertex_creds = None
+        self._vertex_auth_lock = asyncio.Lock()
+        if self._vertex_mode:
+            self._vertex_project_id = vp
+            self._vertex_location_raw = (vertex_location or "us-central1").strip() or "us-central1"
+            self._vertex_location_norm = self._vertex_location_raw.lower()
+            self._vertex_sa_json = (vertex_service_account_json or "").strip() or None
+            self._vertex_access_token = (vertex_access_token or "").strip() or None
+            self._vertex_use_global = bool(vertex_use_global_endpoint)
+            self._vertex_api_root = self._compute_vertex_api_root()
+            if self._vertex_api_key_mode:
+                print(
+                    f"[AsyncGeminiCurlCffi] Vertex API Key 模式（Express REST）："
+                    f"api_root={self._vertex_api_root}（查询参数 key=）"
+                )
+            else:
+                print(
+                    f"[AsyncGeminiCurlCffi] Vertex OAuth 模式：project={self._vertex_project_id} "
+                    f"location={self._vertex_location_raw} api_root={self._vertex_api_root}"
+                )
+        else:
+            self._vertex_project_id = ""
+            self._vertex_location_raw = ""
+            self._vertex_location_norm = ""
+            self._vertex_sa_json = None
+            self._vertex_access_token = None
+            self._vertex_use_global = False
+            self._vertex_api_root = ""
+            if is_gemini_vertex_aiplatform_host(self.base_url):
+                print(
+                    "[AsyncGeminiCurlCffi] 提示：Base 为 aiplatform 但未配置鉴权，将误走 /v1beta/models 并 404。"
+                    "请填写 GEMINI_API_KEY（Vertex Express）或 GEMINI_VERTEX_PROJECT_ID + OAuth，"
+                    "或将 GEMINI_API_BASE 改为 generativelanguage.googleapis.com。"
+                )
+
         # 检测是否是本地地址（本地地址不需要 impersonate，且可能导致超时）
         local_indicators = ['localhost', '127.0.0.1', '0.0.0.0', '192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.']
-        is_local = any(indicator in base_url.lower() for indicator in local_indicators)
+        is_local = any(indicator in self.base_url.lower() for indicator in local_indicators)
 
         # 延迟导入 curl_cffi，避免在不需要时导入
         try:
@@ -811,7 +1241,7 @@ class AsyncGeminiCurlCffi:
             if is_local:
                 # 本地连接：不使用 impersonate，避免 HTTP/2 兼容性问题
                 self.session = AsyncSession()
-                print(f"[AsyncGeminiCurlCffi] Local address detected, disabled impersonate for: {base_url}")
+                print(f"[AsyncGeminiCurlCffi] Local address detected, disabled impersonate for: {self.base_url}")
             else:
                 # 云端连接：使用 impersonate 绕过 TLS 指纹检测
                 self.session = AsyncSession(impersonate=impersonate)
@@ -821,8 +1251,118 @@ class AsyncGeminiCurlCffi:
                 "Install it with: pip install curl_cffi"
             )
 
+        assert_gemini_rest_base_matches_vertex_mode(
+            self.base_url,
+            vertex_mode=self._vertex_mode,
+        )
+
         # 创建模型接口
         self.models = self.Models(self)
+
+    def _compute_vertex_api_root(self) -> str:
+        from urllib.parse import urlparse
+
+        host = _gemini_rest_parse_hostname(self.base_url)
+        if host.endswith(".aiplatform.googleapis.com"):
+            p = urlparse(self.base_url)
+            scheme = p.scheme or "https"
+            return f"{scheme}://{p.netloc}".rstrip("/")
+        # Vertex Express（API Key）：官方 REST 使用全局 aiplatform + ?key=，勿在无区域 Base 时默认改到 us-central1 子域
+        if getattr(self, "_vertex_api_key_mode", False) and host == "aiplatform.googleapis.com":
+            return GEMINI_API_BASE_VERTEX_AIPLATFORM_GLOBAL.rstrip("/")
+        if self._vertex_use_global or self._vertex_location_norm == "global":
+            return GEMINI_API_BASE_VERTEX_AIPLATFORM_GLOBAL.rstrip("/")
+        return f"https://{self._vertex_location_raw}-aiplatform.googleapis.com".rstrip("/")
+
+    def _vertex_loc_path_segment(self) -> str:
+        if self._vertex_location_norm == "global":
+            return "global"
+        return self._vertex_location_raw
+
+    def _vertex_generate_content_url(self, model: str) -> str:
+        import urllib.parse
+
+        enc = urllib.parse.quote(model, safe="")
+        loc = self._vertex_loc_path_segment()
+        return (
+            f"{self._vertex_api_root}/v1/projects/{self._vertex_project_id}"
+            f"/locations/{loc}/publishers/google/models/{enc}:generateContent"
+        )
+
+    def _vertex_list_models_url(self) -> str:
+        loc = self._vertex_loc_path_segment()
+        return (
+            f"{self._vertex_api_root}/v1/projects/{self._vertex_project_id}"
+            f"/locations/{loc}/publishers/google/models"
+        )
+
+    def _vertex_publishers_action_url(self, model: str, action: str) -> str:
+        import urllib.parse
+
+        enc = urllib.parse.quote(model, safe="")
+        return f"{self._vertex_api_root}/v1/publishers/google/models/{enc}:{action}"
+
+    def _url_with_vertex_api_key(self, url: str) -> str:
+        import urllib.parse
+
+        key = urllib.parse.quote(self.api_key, safe="")
+        if "?" in url:
+            return f"{url}&key={key}"
+        return f"{url}?key={key}"
+
+    def _vertex_auth_headers_sync(self) -> Dict[str, str]:
+        tok = (self._vertex_access_token or "").strip()
+        if tok:
+            return {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
+        try:
+            from google.auth.transport.requests import Request as GARequest
+            from google.oauth2 import service_account
+        except ImportError as e:
+            raise ImportError(
+                "Vertex 模式需要 google-auth（pip install google-auth requests）。"
+                "若已安装 google-genai，通常已包含依赖。"
+            ) from e
+        if self._vertex_creds is None:
+            if self._vertex_sa_json and os.path.isfile(self._vertex_sa_json):
+                self._vertex_creds = service_account.Credentials.from_service_account_file(
+                    self._vertex_sa_json,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"],
+                )
+            else:
+                import google.auth
+
+                try:
+                    self._vertex_creds, _ = google.auth.default(
+                        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                    )
+                except Exception as adc_err:
+                    msg = str(adc_err).lower()
+                    if "default credentials" in msg or "application default" in msg:
+                        raise GeminiRestConfigError(
+                            "Vertex 鉴权失败：未找到 Application Default Credentials。\n"
+                            "请任选其一：\n"
+                            "• 设置 GEMINI_VERTEX_SERVICE_ACCOUNT_JSON 为服务账号 JSON 路径\n"
+                            "• 设置 GEMINI_VERTEX_ACCESS_TOKEN 为短期 OAuth 令牌\n"
+                            "• 或执行：gcloud auth application-default login\n"
+                            "若实际使用 AI Studio：将 GEMINI_API_BASE 改为 "
+                            f"{GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT}，填写 GEMINI_API_KEY，"
+                            "并清空 GEMINI_VERTEX_PROJECT_ID（避免误走 Vertex）。"
+                        ) from adc_err
+                    raise
+        expired = getattr(self._vertex_creds, "expired", False)
+        if not self._vertex_creds.valid or expired:
+            self._vertex_creds.refresh(GARequest())
+        access = getattr(self._vertex_creds, "token", None) or ""
+        if not access:
+            raise RuntimeError(
+                "Vertex OAuth 未获得 access_token。请设置 GEMINI_VERTEX_SERVICE_ACCOUNT_JSON、"
+                "GEMINI_VERTEX_ACCESS_TOKEN，或配置 GOOGLE_APPLICATION_CREDENTIALS / gcloud auth application-default login"
+            )
+        return {"Authorization": f"Bearer {access}", "Content-Type": "application/json"}
+
+    async def _vertex_auth_headers_async(self) -> Dict[str, str]:
+        async with self._vertex_auth_lock:
+            return await asyncio.to_thread(self._vertex_auth_headers_sync)
 
     async def close(self):
         """关闭 session"""
@@ -887,7 +1427,7 @@ class _GeminiModelsResponse:
     class Model:
         def __init__(self, model_data):
             self.name = model_data.get('name', '')
-            self.display_name = model_data.get('displayName', '')
+            self.display_name = model_data.get('displayName', '') or model_data.get('display_name', '')
             self.description = model_data.get('description', '')
             # 从 name 中提取模型 ID (格式: models/gemini-1.5-flash)
             if '/' in self.name:
@@ -896,8 +1436,28 @@ class _GeminiModelsResponse:
                 self.id = self.name
 
     def __init__(self, data):
-        # 使用 or [] 确保即使 models 是 None 也能正确处理
-        models_data = data.get('models') or [] if data else []
+        models_data: List[dict] = []
+        if data:
+            raw = data.get('models')
+            if isinstance(raw, list):
+                models_data = raw
+            else:
+                pub = data.get('publisherModels') or data.get('publisher_models')
+                if isinstance(pub, list):
+                    for m in pub:
+                        if not isinstance(m, dict):
+                            continue
+                        name = m.get('name', '') or ''
+                        if not name.startswith('models/'):
+                            tail = name.split('/')[-1] if name else ''
+                            name = f"models/{tail}" if tail else name
+                        models_data.append(
+                            {
+                                'name': name,
+                                'displayName': m.get('displayName', m.get('display_name', '')),
+                                'description': m.get('description', ''),
+                            }
+                        )
         self._models = [self.Model(m) for m in models_data]
 
     def __iter__(self):
@@ -1592,15 +2152,16 @@ class CommonTranslator(InfererModule):
                 on_cancel=on_cancel,
             )
 
-        stream_obj = create_stream()
-        while inspect.isawaitable(stream_obj):
-            stream_obj = await self._await_with_cancel_polling(
-                stream_obj,
-                poll_interval=poll_interval,
-                on_cancel=on_cancel,
-            )
-
+        stream_obj: Any = None
         try:
+            stream_obj = create_stream()
+            while inspect.isawaitable(stream_obj):
+                stream_obj = await self._await_with_cancel_polling(
+                    stream_obj,
+                    poll_interval=poll_interval,
+                    on_cancel=on_cancel,
+                )
+
             aiter = stream_obj.__aiter__()
             got_first_chunk = False
             while True:
@@ -1640,12 +2201,13 @@ class CommonTranslator(InfererModule):
                         await cleanup_result
             raise
         finally:
-            close_fn = getattr(stream_obj, "aclose", None)
-            if callable(close_fn):
-                with contextlib.suppress(Exception):
-                    close_ret = close_fn()
-                    if asyncio.iscoroutine(close_ret):
-                        await close_ret
+            if stream_obj is not None:
+                close_fn = getattr(stream_obj, "aclose", None)
+                if callable(close_fn):
+                    with contextlib.suppress(Exception):
+                        close_ret = close_fn()
+                        if asyncio.iscoroutine(close_ret):
+                            await close_ret
 
         return ''.join(text_parts), last_finish_reason
 

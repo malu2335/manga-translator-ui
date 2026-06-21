@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from widgets.hover_hint import set_hover_hint
+from utils.monospace_font import monospace_qfont
 
 logger = logging.getLogger('manga_translator')
 
@@ -150,7 +151,7 @@ class ScreenColorPicker(QWidget):
         p.drawRoundedRect(mx, iy, sw, sw, 3, 3)
 
         tx = mx + sw + 8
-        f = QFont("Consolas", 10)
+        f = monospace_qfont(10)
         f.setBold(True)
         p.setFont(f)
         p.setPen(QColor(240, 240, 240))

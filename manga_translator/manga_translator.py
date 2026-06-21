@@ -5041,27 +5041,32 @@ class MangaTranslator:
             if skipped > 0:
                 logger.warning(f"Skipped {skipped} pages with no sentences")
 
-
             # 将config附加到ctx，供翻译器使用（例如AI断句功能）
             ctx.config = config
-            
-            # openai_hq、gemini_hq 等需要传递ctx参数
-            if config.translator.translator in [Translator.openai_hq, Translator.gemini_hq]:
-                # 所有需要上下文的翻译器都在这里传递ctx
+
+            try:
+                # openai_hq、gemini_hq 等需要传递ctx参数
+                if config.translator.translator in [Translator.openai_hq, Translator.gemini_hq]:
+                    return await translator._translate(
+                        ctx.from_lang,
+                        config.translator.target_lang,
+                        texts,
+                        ctx,
+                    )
                 return await translator._translate(
                     ctx.from_lang,
                     config.translator.target_lang,
                     texts,
-                    ctx
+                    ctx,
                 )
-            else:
-                # 普通OpenAI和Gemini需要ctx参数（用于AI断句）
-                return await translator._translate(
-                    ctx.from_lang,
-                    config.translator.target_lang,
-                    texts,
-                    ctx
-                )
+            finally:
+                # 每批新建翻译器与 curl AsyncSession，必须显式关闭，否则会泄漏 FD（并发/大批量下易触发 Too many open files）
+                _cleanup = getattr(translator, "_cleanup", None)
+                if callable(_cleanup):
+                    try:
+                        await _cleanup()
+                    except Exception:
+                        pass
 
         else:
             # 使用通用翻译调度器

@@ -34,6 +34,12 @@ CAIYUN_TOKEN = os.getenv('CAIYUN_TOKEN', '') # 彩云小译API访问令牌
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 GEMINI_API_BASE = os.getenv('GEMINI_API_BASE', 'https://generativelanguage.googleapis.com')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-1.5-flash-002')
+# Vertex AI（与 Generative Language 二选一或并存；见 manga_translator/translators/common.py 中说明）
+GEMINI_VERTEX_PROJECT_ID = os.getenv('GEMINI_VERTEX_PROJECT_ID', '')
+GEMINI_VERTEX_LOCATION = os.getenv('GEMINI_VERTEX_LOCATION', 'us-central1')
+GEMINI_VERTEX_SERVICE_ACCOUNT_JSON = os.getenv('GEMINI_VERTEX_SERVICE_ACCOUNT_JSON', '')
+GEMINI_VERTEX_ACCESS_TOKEN = os.getenv('GEMINI_VERTEX_ACCESS_TOKEN', '')
+GEMINI_VERTEX_USE_GLOBAL_ENDPOINT = os.getenv('GEMINI_VERTEX_USE_GLOBAL_ENDPOINT', '')
 
 # deepseek
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')

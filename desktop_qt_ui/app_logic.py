@@ -49,6 +49,12 @@ from manga_translator.config import (
     Upscaler,
 )
 from manga_translator.save import OUTPUT_FORMATS
+from manga_translator.translators.common import (
+    GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT,
+    GEMINI_API_BASE_VERTEX_AIPLATFORM_GLOBAL,
+    gemini_vertex_client_kwargs_from_env,
+    is_gemini_generativelanguage_default_base,
+)
 from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
 from manga_translator.utils import open_pil_image, save_pil_image
 
@@ -178,6 +184,20 @@ class MainAppLogic(QObject):
                 root_logger.info(message)
         except Exception:
             print(f"{level} - {message}")
+
+    def _persist_env_from_ui(self) -> None:
+        """开始翻译前：取消防抖并把所有 API 输入写入 .env / os.environ。"""
+        main_view = getattr(self, "main_view", None)
+        if main_view and hasattr(main_view, "_flush_pending_env_saves"):
+            main_view._flush_pending_env_saves()
+        elif main_view and getattr(main_view, "env_widgets", None):
+            for key, pair in main_view.env_widgets.items():
+                if not pair or len(pair) < 2:
+                    continue
+                try:
+                    self.config_service.save_env_var(key, pair[1].text())
+                except Exception:
+                    continue
 
     def _collect_runtime_env_values(self) -> Dict[str, str]:
         env_vars = self.config_service.load_env_vars()
@@ -881,7 +901,11 @@ class MainAppLogic(QObject):
                 await client.close()
 
     async def _test_gemini_text_api(self, api_key: str, api_base: str | None, model: str | None) -> tuple[bool, str]:
-        base_url = api_base.strip() if api_base and api_base.strip() else "https://generativelanguage.googleapis.com"
+        base_url = (
+            api_base.strip()
+            if api_base and api_base.strip()
+            else GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT
+        )
 
         try:
             from manga_translator.translators.common import AsyncGeminiCurlCffi
@@ -892,6 +916,7 @@ class MainAppLogic(QObject):
                 impersonate="chrome110",
                 timeout=30.0,
                 stream_timeout=30.0,
+                **gemini_vertex_client_kwargs_from_env(base_url=base_url, api_key=api_key),
             )
             try:
                 if model and model.strip():
@@ -906,7 +931,7 @@ class MainAppLogic(QObject):
             from google.genai import types
 
             def sync_test():
-                if base_url != "https://generativelanguage.googleapis.com":
+                if not is_gemini_generativelanguage_default_base(base_url):
                     client = genai.Client(
                         api_key=api_key,
                         http_options=types.HttpOptions(base_url=base_url),
@@ -924,7 +949,11 @@ class MainAppLogic(QObject):
 
     async def _test_gemini_ocr_api(self, api_key: str, api_base: str | None, model: str | None) -> tuple[bool, str]:
         model_name = (model or "").strip() or self._get_default_model_for_test("gemini_ocr")
-        base_url = api_base.strip() if api_base and api_base.strip() else "https://generativelanguage.googleapis.com"
+        base_url = (
+            api_base.strip()
+            if api_base and api_base.strip()
+            else GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT
+        )
         image_b64 = base64.b64encode(self._build_api_test_image_bytes()).decode("ascii")
         contents = [
             {
@@ -945,6 +974,7 @@ class MainAppLogic(QObject):
                 impersonate="chrome110",
                 timeout=30.0,
                 stream_timeout=30.0,
+                **gemini_vertex_client_kwargs_from_env(base_url=base_url, api_key=api_key),
             )
             try:
                 await client.models.generate_content(model=model_name, contents=contents)
@@ -956,7 +986,7 @@ class MainAppLogic(QObject):
             from google.genai import types
 
             def sync_test():
-                if base_url != "https://generativelanguage.googleapis.com":
+                if not is_gemini_generativelanguage_default_base(base_url):
                     client = genai.Client(
                         api_key=api_key,
                         http_options=types.HttpOptions(base_url=base_url),
@@ -970,7 +1000,11 @@ class MainAppLogic(QObject):
 
     async def _test_gemini_image_api(self, api_key: str, api_base: str | None, model: str | None, target_label: str) -> tuple[bool, str]:
         model_name = (model or "").strip() or self._get_default_model_for_test(target_label)
-        base_url = api_base.strip() if api_base and api_base.strip() else "https://generativelanguage.googleapis.com"
+        base_url = (
+            api_base.strip()
+            if api_base and api_base.strip()
+            else GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT
+        )
         image_b64 = base64.b64encode(self._build_api_test_image_bytes()).decode("ascii")
         request_kwargs = {
             "model": model_name,
@@ -1001,6 +1035,7 @@ class MainAppLogic(QObject):
                 impersonate="chrome110",
                 timeout=60.0,
                 stream_timeout=60.0,
+                **gemini_vertex_client_kwargs_from_env(base_url=base_url, api_key=api_key),
             )
             try:
                 response = await client.models.generate_content(**request_kwargs)
@@ -1014,7 +1049,7 @@ class MainAppLogic(QObject):
             from google.genai import types
 
             def sync_test():
-                if base_url != "https://generativelanguage.googleapis.com":
+                if not is_gemini_generativelanguage_default_base(base_url):
                     client = genai.Client(
                         api_key=api_key,
                         http_options=types.HttpOptions(base_url=base_url),
@@ -1130,18 +1165,40 @@ class MainAppLogic(QObject):
                     from manga_translator.translators.common import AsyncGeminiCurlCffi
 
                     # 确定 base_url
-                    base_url = api_base.strip() if api_base and api_base.strip() else "https://generativelanguage.googleapis.com"
+                    base_url = (
+                        api_base.strip()
+                        if api_base and api_base.strip()
+                        else GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT
+                    )
 
                     client = AsyncGeminiCurlCffi(
                         api_key=api_key,
                         base_url=base_url,
                         impersonate="chrome110",
-                        timeout=60.0
+                        timeout=60.0,
+                        **gemini_vertex_client_kwargs_from_env(base_url=base_url, api_key=api_key),
                     )
                     try:
                         models_response = await client.models.list()
                         model_ids = [m.id for m in models_response]
                         return True, model_ids, "获取成功"
+                    except Exception as e:
+                        msg = str(e)
+                        if (
+                            "Vertex「获取模型列表」" in msg
+                            or "api keys are not supported" in msg.lower()
+                        ):
+                            fallback_models = [
+                                "gemini-2.5-flash",
+                                "gemini-2.5-pro",
+                                "gemini-2.0-flash",
+                                "gemini-1.5-flash",
+                            ]
+                            return True, fallback_models, (
+                                "Vertex + API Key 无法从 Google 拉取模型列表（接口限制）。"
+                                "已填入常用模型名，可在下拉中选用或改为你控制台支持的模型 ID。"
+                            )
+                        raise
                     finally:
                         await client.close()
                 except ImportError:
@@ -1152,11 +1209,11 @@ class MainAppLogic(QObject):
                     from google.genai import types
                     loop = asyncio.get_event_loop()
 
-                    # 检查是否是自定义API
-                    is_custom_api = (
+                    # 检查是否是自定义 API（非 Google AI Studio 默认主机）
+                    is_custom_api = bool(
                         api_base
                         and api_base.strip()
-                        and api_base.strip() not in ["https://generativelanguage.googleapis.com", "https://generativelanguage.googleapis.com/"]
+                        and not is_gemini_generativelanguage_default_base(api_base.strip())
                     )
 
                     if is_custom_api:
@@ -1484,6 +1541,11 @@ class MainAppLogic(QObject):
                     "GEMINI_API_KEY": self._t("label_GEMINI_API_KEY"),
                     "GEMINI_MODEL": self._t("label_GEMINI_MODEL"),
                     "GEMINI_API_BASE": self._t("label_GEMINI_API_BASE"),
+                    "GEMINI_VERTEX_PROJECT_ID": self._t("label_GEMINI_VERTEX_PROJECT_ID"),
+                    "GEMINI_VERTEX_LOCATION": self._t("label_GEMINI_VERTEX_LOCATION"),
+                    "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON": self._t("label_GEMINI_VERTEX_SERVICE_ACCOUNT_JSON"),
+                    "GEMINI_VERTEX_ACCESS_TOKEN": self._t("label_GEMINI_VERTEX_ACCESS_TOKEN"),
+                    "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT": self._t("label_GEMINI_VERTEX_USE_GLOBAL_ENDPOINT"),
                     "OCR_OPENAI_API_KEY": self._t("label_OCR_OPENAI_API_KEY"),
                     "OCR_OPENAI_MODEL": self._t("label_OCR_OPENAI_MODEL"),
                     "OCR_OPENAI_API_BASE": self._t("label_OCR_OPENAI_API_BASE"),
@@ -2088,6 +2150,12 @@ class MainAppLogic(QObject):
         """
         Resolves input paths and uses a 'Worker-to-Thread' model to start the translation task.
         """
+        # 先将 UI 中未落盘的 env 写入 .env，再 reload，避免防抖导致翻译读到旧环境变量
+        try:
+            self._persist_env_from_ui()
+        except Exception as e:
+            self._ui_log(f"同步 API 环境变量到 .env 时出错: {e}", "WARNING")
+
         # 通过调用配置服务的 reload_config 方法，强制全面重新加载所有配置
         try:
             self._ui_log("即将开始后台任务，强制重新加载所有配置...")
@@ -2966,7 +3034,15 @@ class TranslationWorker(QObject):
             friendly_msg += "      - OpenAI：gpt-5.2、gpt-5.2-mini\n"
             friendly_msg += "      - Gemini：gemini-3-pro、gemini-3-flash\n\n"
             friendly_msg += "   2. 更换站点（API地址）\n"
-            friendly_msg += "      - Gemini 官方地址： https://generativelanguage.googleapis.com\n"
+            friendly_msg += (
+                "      - Gemini（AI Studio）："
+                f"{GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT}\n"
+            )
+            friendly_msg += (
+                "      - Vertex（GCP）：原生 REST 为 /v1/projects/.../locations/... ，"
+                "与本程序使用的 /v1beta/models 不同；直连 "
+                f"{GEMINI_API_BASE_VERTEX_AIPLATFORM_GLOBAL} 会 404，需反代或改用 AI Studio Key\n"
+            )
             friendly_msg += "      - OpenAI 官方地址： https://api.openai.com/v1\n"
             friendly_msg += "      - 若使用第三方中转，尝试更换服务商或改用官方 API\n\n"
             friendly_msg += "   3. 更换翻译图片的内容后再试\n"
@@ -3157,13 +3233,24 @@ class TranslationWorker(QObject):
             friendly_msg += "   1. ⭐ 检查翻译器类型是否匹配API地址（最常见）\n"
             friendly_msg += "      - 如果API地址是 xxxx/v1 格式（OpenAI兼容接口）\n"
             friendly_msg += "        → 应选择「OpenAI」或「OpenAI高质量」翻译器\n"
-            friendly_msg += "      - 如果使用 Gemini 官方 API (generativelanguage.googleapis.com)\n"
+            friendly_msg += (
+                "      - 若使用 Google AI Studio："
+                f"{GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT} + API Key（AIza…）\n"
+            )
+            friendly_msg += (
+                "      - 若使用 Vertex：本程序不按 Vertex 原生路径发请求；请用反代暴露 /v1beta/models，"
+                "或改用 AI Studio 接口\n"
+            )
             friendly_msg += "        → 应选择「Gemini」或「Gemini高质量」翻译器\n"
             friendly_msg += "      - 位置：翻译设置 → 翻译器\n\n"
             friendly_msg += "   2. 检查API地址是否正确\n"
             friendly_msg += "      - 位置：翻译设置 → 环境变量 → API_BASE\n"
             friendly_msg += "      - OpenAI默认：https://api.openai.com/v1\n"
-            friendly_msg += "      - Gemini默认：https://generativelanguage.googleapis.com\n"
+            friendly_msg += (
+                "      - Gemini 默认 Base："
+                f"{GEMINI_API_BASE_GENERATIVELANGUAGE_DEFAULT}；"
+                "勿将 Vertex 域名当作可替换的同一 Base（路径与鉴权均不同）\n"
+            )
             friendly_msg += "      - 注意：地址末尾的 /v1 不要多加或少加\n\n"
             friendly_msg += "   3. 检查模型名称\n"
             friendly_msg += "      - 位置：翻译设置 → 环境变量 → MODEL\n"
@@ -3295,6 +3382,19 @@ class TranslationWorker(QObject):
         return friendly_msg
 
     async def _do_processing(self):
+        try:
+            from desktop_qt_ui.services import get_config_service
+
+            config_service = get_config_service()
+            if config_service is not None:
+                config_service.refresh_dotenv()
+                vp = (os.getenv("GEMINI_VERTEX_PROJECT_ID") or "").strip()
+                if vp:
+                    preview = f"{vp[:8]}…" if len(vp) > 8 else vp
+                    self._log(logging.DEBUG, f"GEMINI_VERTEX_PROJECT_ID 已加载 (project={preview})")
+        except Exception as e:
+            self._log_warning(f"翻译前刷新 .env 失败: {e}")
+
         manga_logger = logging.getLogger('manga_translator')
         
         # 根据 verbose 配置设置日志级别

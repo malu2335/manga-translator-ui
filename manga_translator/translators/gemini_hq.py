@@ -15,6 +15,10 @@ from .common import (
     VALID_LANGUAGES,
     AsyncGeminiCurlCffi,
     CommonTranslator,
+    gemini_vertex_client_kwargs_from_env,
+    should_enable_gemini_vertex_mode,
+    sync_gemini_translator_vertex_from_env,
+    is_gemini_generativelanguage_default_base,
     draw_text_boxes_on_image,
     extract_gemini_response_diagnostics,
     format_gemini_response_diagnostics,
@@ -114,6 +118,13 @@ class GeminiHighQualityTranslator(CommonTranslator):
         self.model_name = os.getenv(self.MODEL_ENV, self.DEFAULT_MODEL_NAME)
         self._runtime_api_settings = None
         self._refresh_runtime_api_settings(None)
+        self.vertex_project_id = (os.getenv("GEMINI_VERTEX_PROJECT_ID") or "").strip() or None
+        self.vertex_location = (os.getenv("GEMINI_VERTEX_LOCATION") or "us-central1").strip() or "us-central1"
+        self.vertex_service_account_json = (os.getenv("GEMINI_VERTEX_SERVICE_ACCOUNT_JSON") or "").strip() or None
+        self.vertex_access_token = (os.getenv("GEMINI_VERTEX_ACCESS_TOKEN") or "").strip() or None
+        self.vertex_use_global_endpoint = os.getenv(
+            "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT", ""
+        ).strip().lower() in ("1", "true", "yes", "on")
         self.max_tokens = None  # 不限制，使用模型默认最大值
         self._MAX_REQUESTS_PER_MINUTE = 0  # 默认无限制
         # 使用全局时间戳,跨实例共享
@@ -140,6 +151,28 @@ class GeminiHighQualityTranslator(CommonTranslator):
             ),
         ]
         self._setup_client()
+
+    def _vertex_client_kwargs(self) -> dict:
+        merged = gemini_vertex_client_kwargs_from_env(
+            base_url=self.base_url,
+            api_key=self.api_key,
+        )
+        if self.vertex_project_id:
+            merged["vertex_project_id"] = self.vertex_project_id.strip()
+        if self.vertex_location:
+            merged["vertex_location"] = self.vertex_location.strip()
+        if self.vertex_service_account_json:
+            merged["vertex_service_account_json"] = self.vertex_service_account_json.strip()
+        if self.vertex_access_token:
+            merged["vertex_access_token"] = self.vertex_access_token.strip()
+        merged["vertex_use_global_endpoint"] = bool(self.vertex_use_global_endpoint)
+        if not should_enable_gemini_vertex_mode(
+            self.base_url,
+            vertex_project_id=merged.get("vertex_project_id"),
+            api_key=self.api_key,
+        ):
+            return {}
+        return merged
 
     def _log_provider_name(self) -> str:
         return self.LOG_PROVIDER_NAME
@@ -171,7 +204,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
         
         # 从配置中读取用户级 API Key（优先于环境变量）
         # 这允许 Web 服务器为每个用户使用不同的 API Key
-        need_rebuild_client = False
+        need_rebuild_client = sync_gemini_translator_vertex_from_env(self)
         
         user_api_key = self._get_config_value(translator_args, 'user_api_key', None)
         if user_api_key and user_api_key != self.api_key:
@@ -201,6 +234,37 @@ class GeminiHighQualityTranslator(CommonTranslator):
             self._refresh_runtime_api_settings(args)
             if (self.api_key or "", self.base_url, self.model_name) != old_signature:
                 need_rebuild_client = True
+
+        _vp = self._get_config_value(translator_args, "vertex_project_id", None)
+        if _vp is not None:
+            nv = str(_vp).strip() or None
+            if nv != self.vertex_project_id:
+                need_rebuild_client = True
+            self.vertex_project_id = nv
+        _vl = self._get_config_value(translator_args, "vertex_location", None)
+        if _vl is not None:
+            nv = str(_vl).strip() or "us-central1"
+            if nv != self.vertex_location:
+                need_rebuild_client = True
+            self.vertex_location = nv
+        _vs = self._get_config_value(translator_args, "vertex_service_account_json", None)
+        if _vs is not None:
+            nv = str(_vs).strip() or None
+            if nv != self.vertex_service_account_json:
+                need_rebuild_client = True
+            self.vertex_service_account_json = nv
+        _va = self._get_config_value(translator_args, "vertex_access_token", None)
+        if _va is not None:
+            nv = str(_va).strip() or None
+            if nv != self.vertex_access_token:
+                need_rebuild_client = True
+            self.vertex_access_token = nv
+        _vg = self._get_config_value(translator_args, "vertex_use_global_endpoint", None)
+        if _vg is not None:
+            nv = bool(_vg)
+            if nv != self.vertex_use_global_endpoint:
+                need_rebuild_client = True
+            self.vertex_use_global_endpoint = nv
 
         # 如果 API Key 或 Base URL 变化，重建客户端
         if need_rebuild_client:
@@ -284,22 +348,50 @@ class GeminiHighQualityTranslator(CommonTranslator):
 
     def _setup_client(self, system_instruction=None):
         """设置高质量翻译客户端"""
-        if not self.client and self.api_key:
+        vx = self._vertex_client_kwargs()
+        vertex_host = should_enable_gemini_vertex_mode(
+            self.base_url,
+            vertex_project_id=vx.get("vertex_project_id") or self.vertex_project_id,
+            api_key=self.api_key,
+        )
+        if not self.client and (self.api_key or vertex_host):
             # 检查是否使用自定义 API Base
-            is_custom_api = (
+            is_custom_api = bool(
                 self.base_url
                 and self.base_url.strip()
-                and self.base_url.strip() not in ["https://generativelanguage.googleapis.com", "https://generativelanguage.googleapis.com/"]
+                and not is_gemini_generativelanguage_default_base(self.base_url)
             )
 
-            if is_custom_api:
+            if vertex_host:
                 self.client = AsyncGeminiCurlCffi(
                     api_key=self.api_key,
                     base_url=self.base_url,
                     default_headers=BROWSER_HEADERS,
                     impersonate="chrome110",
                     timeout=600,
-                    stream_timeout=300
+                    stream_timeout=300,
+                    **vx,
+                )
+                self._use_curl_cffi = True
+                if vx.get("vertex_project_id"):
+                    self.logger.info(
+                        f"{self._log_provider_name()} 客户端初始化（Vertex OAuth REST）。"
+                        f" project={vx.get('vertex_project_id')} location={vx.get('vertex_location')}"
+                    )
+                else:
+                    self.logger.info(
+                        f"{self._log_provider_name()} 客户端初始化（Vertex API Key / Express REST）。"
+                        f" Base: {self.base_url}"
+                    )
+            elif is_custom_api:
+                self.client = AsyncGeminiCurlCffi(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    default_headers=BROWSER_HEADERS,
+                    impersonate="chrome110",
+                    timeout=600,
+                    stream_timeout=300,
+                    **vx,
                 )
                 self._use_curl_cffi = True
                 self.logger.info(
@@ -311,7 +403,8 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     default_headers=BROWSER_HEADERS,
                     impersonate="chrome110",
                     timeout=600,
-                    stream_timeout=300
+                    stream_timeout=300,
+                    **vx,
                 )
                 self._use_curl_cffi = True
                 self.logger.info(f"{self._log_provider_name()}客户端初始化完成（强制 curl_cffi 模式）")
@@ -334,6 +427,20 @@ class GeminiHighQualityTranslator(CommonTranslator):
         finally:
             self.client = None
 
+    async def _cleanup(self):
+        """翻译结束后释放 curl 会话，避免批量任务耗尽文件描述符。"""
+        if not self.client:
+            return
+        close_fn = getattr(self.client, "close", None)
+        try:
+            if callable(close_fn):
+                close_result = close_fn()
+                if asyncio.iscoroutine(close_result):
+                    await close_result
+        except Exception:
+            pass
+        finally:
+            self.client = None
 
     def _build_user_prompt(self, batch_data: List[Dict], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> str:
         """构建用户提示词（高质量版）- 使用统一方法，只包含当前待翻译文本"""

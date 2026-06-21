@@ -392,7 +392,7 @@ class GeminiRenderer(BaseAPIRenderer):
     ]
 
     def _create_client(self, api_key: str, base_url: str):
-        from ..translators.common import AsyncGeminiCurlCffi
+        from ..translators.common import AsyncGeminiCurlCffi, gemini_vertex_client_kwargs_from_env
 
         return AsyncGeminiCurlCffi(
             api_key=api_key,
@@ -401,6 +401,7 @@ class GeminiRenderer(BaseAPIRenderer):
             impersonate="chrome110",
             timeout=600.0,
             stream_timeout=300.0,
+            **gemini_vertex_client_kwargs_from_env(base_url=base_url, api_key=api_key),
         )
 
     async def _request_rendered_image(

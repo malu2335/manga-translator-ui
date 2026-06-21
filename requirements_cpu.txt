@@ -73,6 +73,7 @@ websockets==14.2
 anyio>=4.8.0
 # xformers==0.0.32.post2  # CPU版本不需要,仅GPU使用
 google-genai==1.57.0
+google-auth>=2.29.0
 # pydensecrf - 按平台选择安装来源
 # Windows: 使用预编译 wheel（避免本地编译失败）
 pydensecrf @ https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.7.6/pydensecrf-1.0-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'

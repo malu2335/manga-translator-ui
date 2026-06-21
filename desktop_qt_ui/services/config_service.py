@@ -74,11 +74,25 @@ RUNTIME_API_REQUIREMENTS = {
     },
     "gemini": {
         "display_name": "Gemini",
-        "accepted_env_vars": ["GEMINI_API_KEY"],
+        "accepted_env_vars": [
+            "GEMINI_API_KEY",
+            "GEMINI_VERTEX_PROJECT_ID",
+            "GEMINI_VERTEX_LOCATION",
+            "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON",
+            "GEMINI_VERTEX_ACCESS_TOKEN",
+            "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT",
+        ],
     },
     "gemini_hq": {
         "display_name": "Gemini HQ",
-        "accepted_env_vars": ["GEMINI_API_KEY"],
+        "accepted_env_vars": [
+            "GEMINI_API_KEY",
+            "GEMINI_VERTEX_PROJECT_ID",
+            "GEMINI_VERTEX_LOCATION",
+            "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON",
+            "GEMINI_VERTEX_ACCESS_TOKEN",
+            "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT",
+        ],
     },
     "openai_ocr": {
         "display_name": "OpenAI OCR",
@@ -88,7 +102,15 @@ RUNTIME_API_REQUIREMENTS = {
     },
     "gemini_ocr": {
         "display_name": "Gemini OCR",
-        "accepted_env_vars": ["OCR_GEMINI_API_KEY", "GEMINI_API_KEY"],
+        "accepted_env_vars": [
+            "OCR_GEMINI_API_KEY",
+            "GEMINI_API_KEY",
+            "GEMINI_VERTEX_PROJECT_ID",
+            "GEMINI_VERTEX_LOCATION",
+            "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON",
+            "GEMINI_VERTEX_ACCESS_TOKEN",
+            "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT",
+        ],
     },
     "openai_colorizer": {
         "display_name": "OpenAI Colorizer",
@@ -98,7 +120,15 @@ RUNTIME_API_REQUIREMENTS = {
     },
     "gemini_colorizer": {
         "display_name": "Gemini Colorizer",
-        "accepted_env_vars": ["COLOR_GEMINI_API_KEY", "GEMINI_API_KEY"],
+        "accepted_env_vars": [
+            "COLOR_GEMINI_API_KEY",
+            "GEMINI_API_KEY",
+            "GEMINI_VERTEX_PROJECT_ID",
+            "GEMINI_VERTEX_LOCATION",
+            "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON",
+            "GEMINI_VERTEX_ACCESS_TOKEN",
+            "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT",
+        ],
     },
     "openai_renderer": {
         "display_name": "OpenAI Renderer",
@@ -108,7 +138,15 @@ RUNTIME_API_REQUIREMENTS = {
     },
     "gemini_renderer": {
         "display_name": "Gemini Renderer",
-        "accepted_env_vars": ["RENDER_GEMINI_API_KEY", "GEMINI_API_KEY"],
+        "accepted_env_vars": [
+            "RENDER_GEMINI_API_KEY",
+            "GEMINI_API_KEY",
+            "GEMINI_VERTEX_PROJECT_ID",
+            "GEMINI_VERTEX_LOCATION",
+            "GEMINI_VERTEX_SERVICE_ACCOUNT_JSON",
+            "GEMINI_VERTEX_ACCESS_TOKEN",
+            "GEMINI_VERTEX_USE_GLOBAL_ENDPOINT",
+        ],
     },
 }
 
@@ -523,6 +561,12 @@ class ConfigService(QObject):
             self.logger.error(f"保存配置文件失败: {e}")
             return False
 
+    def refresh_dotenv(self) -> None:
+        """仅从 .env 刷新进程环境变量（轻量，供翻译任务线程使用）。"""
+        if os.path.exists(self.env_path):
+            load_dotenv(self.env_path, override=True)
+        self._env_cache = None
+
     def reload_config(self):
         """
         强制从 .env 和 JSON 文件完全重新加载配置。
@@ -531,7 +575,7 @@ class ConfigService(QObject):
         self.logger.info("正在强制重新加载配置...")
         
         # 1. 重新加载 .env 文件到 os.environ。翻译引擎会自动从此读取。
-        load_dotenv(self.env_path, override=True)
+        self.refresh_dotenv()
         self.logger.info(f".env 文件已从 {self.env_path} 重新加载，环境变量已更新。")
 
         # 2. 重新创建 AppSettings 对象 (用于UI设置)
