@@ -761,12 +761,11 @@ def _normalize_line_spacing(line_spacing: float) -> float:
 
 
 def resolve_horizontal_line_spacing_multiplier(line_spacing: float) -> float:
-    value = _normalize_line_spacing(line_spacing)
-    return 1.0 + (value - 1.0) * 10.0 if value > 1.0 else value
-
+    return _normalize_line_spacing(line_spacing)
 
 def calc_horizontal_line_spacing_px(font_size: int, line_spacing: float) -> int:
-    return int(font_size * 0.01 * resolve_horizontal_line_spacing_multiplier(line_spacing))
+    value = _normalize_line_spacing(line_spacing)
+    return int(font_size * (value - 1.0))
 
 
 def _scale_advance(advance: int, letter_spacing: float) -> int:
@@ -1285,7 +1284,12 @@ def put_text_vertical(
     _ = (h, region_count)
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
     bg_size = int(max(font_size * stroke_ratio, 1)) if bg is not None else 0
-    spacing_x = int(font_size * 0.2 * (_normalize_line_spacing(line_spacing) or 1.0))
+    
+    val_ls = _normalize_line_spacing(line_spacing)
+    if val_ls >= 1.0:
+        spacing_x = int(font_size * 0.2 * val_ls)
+    else:
+        spacing_x = int(font_size * (val_ls - 0.8))
     block_cache = {}
     stage_t0 = perf_counter() if profile_stats is not None else None
     layouts = [
