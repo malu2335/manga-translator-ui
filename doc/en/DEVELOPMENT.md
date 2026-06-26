@@ -51,12 +51,19 @@ In day-to-day development, the tracked areas below are the most important ones t
 manga-translator-ui-package/
 ├─ desktop_qt_ui/              # Qt desktop application
 │  ├─ main.py                  # Desktop entry point
-│  ├─ main_window.py           # Main window and main lifecycle
+│  ├─ ui/                      # Centralized desktop UI definitions
+│  │  ├─ main_window.py        # Main window and main lifecycle
+│  │  ├─ styles.py             # Unified styles for the main page, editor, and secondary pages
+│  │  ├─ theme.py              # Theme runtime, palette, and application logic
+│  │  ├─ theme_tokens.py       # Theme tokens and color definitions
+│  │  ├─ main_page/            # Main page view, layout, and runtime
+│  │  ├─ editor/               # Editor page, canvas, and shortcuts
+│  │  ├─ secondary_pages/      # Secondary pages and editor dialogs
+│  │  ├─ widgets/              # Shared UI widgets
+│  │  └─ icons/                # UI icon assets
 │  ├─ services/                # Service container, config, translation, OCR, logging, etc.
-│  ├─ editor/                  # Visual editor core
-│  ├─ widgets/                 # Shared UI widgets
-│  ├─ main_view_parts/         # Main-view sections and layout generation
-│  └─ locales/                 # Multilingual text and layout config
+│  ├─ editor/                  # Editor controllers, models, rendering, and document logic
+│  └─ locales/                 # Multilingual text
 ├─ manga_translator/           # Core translation engine and server
 │  ├─ __main__.py              # Unified CLI / web / ws / shared entry
 │  ├─ detection/               # Text detection
@@ -95,20 +102,29 @@ The main startup path is roughly:
 2. initialize logging, resource paths, and global exception handling
 3. call `desktop_qt_ui.services.init_services(root_dir)`
 4. create `MainWindow`
-5. assemble the main UI and editor through `main_view.py`, `main_view_parts/`, and `editor/`
+5. assemble the main UI and editor through `ui/main_window.py`, `ui/main_page/`, and `ui/editor/`
 
 When making desktop-side changes, these are the usual landing points:
 
 - change settings read/write behavior:
   - `desktop_qt_ui/services/config_service.py`
   - `desktop_qt_ui/core/config_models.py`
-- change main-view layout:
-  - `desktop_qt_ui/main_view.py`
-  - `desktop_qt_ui/main_view_parts/`
-- change editor behavior:
+- change main page UI:
+  - `desktop_qt_ui/ui/main_page/`
+- change editor page or canvas UI:
+  - `desktop_qt_ui/ui/editor/`
+- change secondary pages or editor dialogs:
+  - `desktop_qt_ui/ui/secondary_pages/`
+- change shared widgets:
+  - `desktop_qt_ui/ui/widgets/`
+- change page, editor, or secondary-page styles:
+  - `desktop_qt_ui/ui/styles.py`
+- change theme tokens:
+  - `desktop_qt_ui/ui/theme_tokens.py`
+- change theme runtime:
+  - `desktop_qt_ui/ui/theme.py`
+- change editor business behavior:
   - `desktop_qt_ui/editor/`
-- change shared dialogs or widgets:
-  - `desktop_qt_ui/widgets/`
 - change service wiring:
   - `desktop_qt_ui/services/__init__.py`
 
@@ -231,14 +247,14 @@ At minimum, check the chain below. Many settings require more than changing only
    Otherwise the desktop app may save the value, but the backend runtime may never read it.
 3. `examples/config-example.json`
    Sync the default config template so the new field appears in exported config and first-run config.
-4. `desktop_qt_ui/locales/settings_tab_layout.json`
+4. `desktop_qt_ui/ui/main_page/settings_tab_layout.json`
    If the setting should appear in the settings page, add `section.key` to the correct tab `items`.
 5. `desktop_qt_ui/app_logic.py`
    If the setting is a dropdown or needs friendly display text, add support in `get_options_for_key()`, `get_display_mapping()`, and related label mapping if needed.
 6. `desktop_qt_ui/locales/*.json`
    At minimum, add `label_xxx` and `desc_section_key`.
    If it is an enum-style option, also add the corresponding option text keys.
-7. `desktop_qt_ui/main_view_parts/dynamic_settings.py`
+7. `desktop_qt_ui/ui/main_page/dynamic_settings.py`
    If the default generic widget is not enough, or if the field should be hidden, grouped, given buttons, given placeholders, or routed to a special editor, add the custom logic here.
 8. `desktop_qt_ui/app_logic.py`
    If changing the setting should trigger immediate side effects, such as switching translators, refreshing rendering, or updating linked fields, add the runtime behavior in `update_single_config()`.
@@ -262,7 +278,7 @@ Depending on the setting type, also check these extra locations:
 - If the setting is temporary state that should be excluded from import/export:
   check `export_config()` and `import_config()` in `desktop_qt_ui/app_logic.py`.
 - If the setting affects editor-side display or editing behavior:
-  continue into `desktop_qt_ui/editor/` and `desktop_qt_ui/widgets/property_panel.py`.
+  continue into `desktop_qt_ui/ui/editor/`, `desktop_qt_ui/ui/widgets/property_panel.py`, and the related `desktop_qt_ui/editor/` logic.
 
 Current UI note:
 

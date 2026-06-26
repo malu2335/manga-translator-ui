@@ -44,12 +44,19 @@ pip install pyinstaller
 manga-translator-ui-package/
 ├─ desktop_qt_ui/              # Qt 桌面应用
 │  ├─ main.py                  # 桌面端入口
-│  ├─ main_window.py           # 主窗口与主生命周期
+│  ├─ ui/                      # 桌面 UI 定义集中目录
+│  │  ├─ main_window.py        # 主窗口与主生命周期
+│  │  ├─ styles.py             # 主页面、编辑器、二级页面的统一样式入口
+│  │  ├─ theme.py              # 主题运行时、调色板与应用逻辑
+│  │  ├─ theme_tokens.py       # 主题 token 与配色定义
+│  │  ├─ main_page/            # 主页面视图、布局与运行态
+│  │  ├─ editor/               # 编辑器页面、画布与快捷键
+│  │  ├─ secondary_pages/      # 二级页面与编辑弹窗
+│  │  ├─ widgets/              # 通用 UI 控件
+│  │  └─ icons/                # UI 图标资源
 │  ├─ services/                # 服务容器、配置、翻译、OCR、日志等
-│  ├─ editor/                  # 可视化编辑器核心
-│  ├─ widgets/                 # 通用 UI 组件
-│  ├─ main_view_parts/         # 主界面分区与布局生成
-│  └─ locales/                 # 多语言文本与布局配置
+│  ├─ editor/                  # 编辑器控制器、模型、渲染与文档逻辑
+│  └─ locales/                 # 多语言文本
 ├─ manga_translator/           # 核心翻译引擎与服务端
 │  ├─ __main__.py              # CLI / web / ws / shared 统一入口
 │  ├─ detection/               # 文本检测
@@ -86,14 +93,19 @@ python -m desktop_qt_ui.main
 2. 初始化日志、资源路径、全局异常处理
 3. 调用 `desktop_qt_ui.services.init_services(root_dir)`
 4. 创建 `MainWindow`
-5. 再由 `main_view.py`、`main_view_parts/`、`editor/` 组装主界面和编辑器
+5. 再由 `ui/main_window.py`、`ui/main_page/`、`ui/editor/` 组装主界面和编辑器
 
 桌面端改动时通常按下面的落点找文件：
 
 - 改设置读写：`desktop_qt_ui/services/config_service.py`、`desktop_qt_ui/core/config_models.py`
-- 改主界面布局：`desktop_qt_ui/main_view.py`、`desktop_qt_ui/main_view_parts/`
-- 改编辑器行为：`desktop_qt_ui/editor/`
-- 改通用弹窗/控件：`desktop_qt_ui/widgets/`
+- 改主界面 UI：`desktop_qt_ui/ui/main_page/`
+- 改编辑器页面/画布 UI：`desktop_qt_ui/ui/editor/`
+- 改二级页面或编辑弹窗：`desktop_qt_ui/ui/secondary_pages/`
+- 改通用控件：`desktop_qt_ui/ui/widgets/`
+- 改页面、编辑器、二级页面样式：`desktop_qt_ui/ui/styles.py`
+- 改主题 token：`desktop_qt_ui/ui/theme_tokens.py`
+- 改主题运行时：`desktop_qt_ui/ui/theme.py`
+- 改编辑器业务行为：`desktop_qt_ui/editor/`
 - 改服务装配：`desktop_qt_ui/services/__init__.py`
 
 ### 3.2 核心引擎与命令行
@@ -202,13 +214,13 @@ python -m manga_translator web --host 127.0.0.1 --port 8000 -v
    如果这个设置会进入核心翻译流水线、CLI、Web 服务或底层模块配置，还要同步这里的核心配置模型和相关枚举；否则桌面端存下来了，后端实际运行时可能根本读不到。
 3. `examples/config-example.json`
    同步默认配置模板，保证新字段能写入导出配置和首次启动配置。
-4. `desktop_qt_ui/locales/settings_tab_layout.json`
+4. `desktop_qt_ui/ui/main_page/settings_tab_layout.json`
    如果这个设置要出现在设置页，需要把 `section.key` 放进对应 tab 的 `items`。
 5. `desktop_qt_ui/app_logic.py`
    如果设置是下拉选项或需要友好显示，补 `get_options_for_key()`、`get_display_mapping()`，必要时补 `labels` 映射。
 6. `desktop_qt_ui/locales/*.json`
    至少补 `label_xxx` 和 `desc_section_key`；如果是枚举值，还要补对应选项文案 key。
-7. `desktop_qt_ui/main_view_parts/dynamic_settings.py`
+7. `desktop_qt_ui/ui/main_page/dynamic_settings.py`
    如果默认的通用控件不够用，或者这个字段要隐藏、分组、加按钮、加占位符、走特殊编辑器，就在这里补特殊逻辑。
 8. `desktop_qt_ui/app_logic.py`
    如果设置变化后要立刻触发副作用，比如切换翻译器、刷新渲染、联动其他字段，就补 `update_single_config()` 里的即时处理。
@@ -226,7 +238,7 @@ python -m manga_translator web --host 127.0.0.1 --port 8000 -v
 - 如果设置属于导入导出时应排除的临时状态：
   检查 `desktop_qt_ui/app_logic.py` 的 `export_config()` / `import_config()`。
 - 如果设置会影响编辑器侧展示或编辑行为：
-  继续检查 `desktop_qt_ui/editor/` 和 `desktop_qt_ui/widgets/property_panel.py`。
+  继续检查 `desktop_qt_ui/ui/editor/`、`desktop_qt_ui/ui/widgets/property_panel.py` 和相关 `desktop_qt_ui/editor/` 逻辑。
 
 #### 新增或接入一个翻译器 / OCR / 渲染器
 

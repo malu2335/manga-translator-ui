@@ -5,8 +5,8 @@ from editor.file_list_model import SUPPORTED_IMAGE_EXTENSIONS, FileListModel, Fi
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QFileDialog
 from services import get_config_service, get_logger
-from widgets.folder_dialog import select_folders
-from widgets.file_list_view import natural_sort_key
+from ui.secondary_pages.folder_dialog import select_folders
+from ui.widgets.file_list_view import natural_sort_key
 
 
 class EditorLogic(QObject):

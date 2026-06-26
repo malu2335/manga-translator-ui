@@ -39,12 +39,12 @@ try:
 except ImportError:
     pass
 
-from main_window import MainWindow
+from ui.main_window import MainWindow
 from PyQt6.QtWidgets import QApplication
 from services import init_services
 from utils.app_version import get_app_version
 from utils.resource_helper import iter_existing_resource_paths, load_icon_from_resources
-from widgets.themed_message_box import install_themed_message_boxes
+from ui.secondary_pages.themed_message_box import install_themed_message_boxes
 
 
 # 全局异常处理器，捕获未处理的异常并记录到日志

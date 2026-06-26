@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtWidgets import QMessageBox
 from services import get_render_parameter_service
-from widgets.themed_message_box import apply_message_box_style
+from ui.secondary_pages.themed_message_box import apply_message_box_style
 
 from .document_load_worker import DocumentLoadWorker
 from .session import DocumentLoadFailure, DocumentSnapshot

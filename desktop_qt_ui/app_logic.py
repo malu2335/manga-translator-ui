@@ -1725,7 +1725,7 @@ class MainAppLogic(QObject):
         last_dir = self.get_last_open_dir()
 
         # 使用自定义的现代化文件夹选择器
-        from widgets.folder_dialog import select_folders
+        from ui.secondary_pages.folder_dialog import select_folders
 
         folders = select_folders(
             parent=None,
@@ -2449,7 +2449,7 @@ class MainAppLogic(QObject):
             
             # 关闭缩略图加载线程池
             try:
-                from desktop_qt_ui.widgets.file_list_view import (
+                from ui.widgets.file_list_view import (
                     shutdown_thumbnail_executor,
                 )
                 shutdown_thumbnail_executor()

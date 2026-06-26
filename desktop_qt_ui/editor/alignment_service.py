@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .graphics_items import RegionTextItem
+    from ui.editor.graphics_items import RegionTextItem
 
 
 def _get_white_frame_world_ref(item: "RegionTextItem", ref_key: str) -> float | None:

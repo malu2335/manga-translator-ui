@@ -417,7 +417,7 @@ class EditorController(QObject):
         if graphics_view is not None:
             graphics_view.set_controller(self)
         # 初始化Toast管理器
-        from desktop_qt_ui.widgets.toast_notification import ToastManager
+        from ui.widgets.toast_notification import ToastManager
         self.toast_manager = ToastManager(view)
         # 连接Toast信号到主线程槽函数
         self._show_toast_signal.connect(self._show_toast_in_main_thread)

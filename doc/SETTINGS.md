@@ -6,7 +6,7 @@
 
 ## 📖 参数详解
 
-当前桌面端通过左侧"设置"进入参数页，实际页签由 `desktop_qt_ui/locales/settings_tab_layout.json` 定义，主要包括：
+当前桌面端通过左侧"设置"进入参数页，实际页签由 `desktop_qt_ui/ui/main_page/settings_tab_layout.json` 定义，主要包括：
 
 - **通用**：语言、主题、详细日志、GPU、输出格式、批量大小、PSD 导出等
 - **OCR**：OCR 模型、混合 OCR、AI OCR 提示词与相关阈值
