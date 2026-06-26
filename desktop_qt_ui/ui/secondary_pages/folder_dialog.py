@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from services import get_i18n_manager
+from utils.resource_helper import resource_path
 from ui.widgets.hover_hint import set_hover_hint
 
 
@@ -1593,24 +1594,7 @@ class FolderDialog(QDialog):
 
     def _get_config_path(self) -> str:
         """获取配置文件路径，支持打包和开发环境"""
-        import sys
-        
-        if getattr(sys, 'frozen', False):
-            # 打包环境：配置文件在 _internal/examples/config.json
-            if hasattr(sys, '_MEIPASS'):
-                base_path = sys._MEIPASS
-            else:
-                base_path = os.path.dirname(sys.executable)
-            config_path = os.path.join(base_path, "examples", "config.json")
-        else:
-            # 开发环境：配置文件在项目根目录的 examples/config.json
-            # 从当前文件向上找到项目根目录
-            current_file = Path(__file__).resolve()
-            # folder_dialog.py -> widgets -> desktop_qt_ui -> 项目根目录
-            project_root = current_file.parent.parent.parent
-            config_path = os.path.join(project_root, "examples", "config.json")
-        
-        return config_path
+        return resource_path(os.path.join("examples", "config.json"))
     
     def _get_favorites_config_path(self) -> str:
         """获取收藏文件夹配置文件路径（用户目录）"""

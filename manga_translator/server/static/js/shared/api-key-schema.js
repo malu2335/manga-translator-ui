@@ -31,6 +31,17 @@
             ],
         },
         {
+            id: 'translation-sakura',
+            category: 'translation',
+            name: 'Sakura',
+            i18nKey: 'translator_sakura',
+            note: 'Sakura 使用固定兼容密钥，只需要配置 API 地址和词典路径。',
+            keys: [
+                { key: 'SAKURA_API_BASE', i18n: 'label_SAKURA_API_BASE', type: 'text', placeholder: 'http://127.0.0.1:8080/v1' },
+                { key: 'SAKURA_DICT_PATH', i18n: 'label_SAKURA_DICT_PATH', type: 'text', placeholder: './dict/sakura_dict.txt' },
+            ],
+        },
+        {
             id: 'ocr-openai',
             category: 'ocr',
             name: 'OpenAI OCR',

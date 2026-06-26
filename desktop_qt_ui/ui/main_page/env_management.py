@@ -99,11 +99,29 @@ def _create_env_line_edit(self, key: str, value: str):
     return widget, widget
 
 
+def _add_env_action_button(self, layout, row: int, env_key: str, action_key: str) -> None:
+    from PyQt6.QtWidgets import QPushButton
+
+    if _is_secret_env_key(action_key):
+        test_button = QPushButton(self._t("Test"))
+        test_button.setProperty("chipButton", True)
+        test_button.setFixedWidth(60)
+        test_button.clicked.connect(partial(self._on_test_api_clicked, env_key))
+        layout.addWidget(test_button, row, 2)
+    elif "MODEL" in action_key:
+        get_models_button = QPushButton(self._t("Get Models"))
+        get_models_button.setProperty("chipButton", True)
+        get_models_button.setFixedWidth(100)
+        get_models_button.clicked.connect(partial(self._on_get_models_clicked, env_key))
+        layout.addWidget(get_models_button, row, 2)
+
+
 def create_env_widgets(self, keys: list, current_values: dict):
     """为给定的键创建标签和输入框。"""
-    from PyQt6.QtWidgets import QGridLayout, QPushButton
+    from PyQt6.QtWidgets import QGridLayout
 
-    row = 0
+    is_grid_layout = isinstance(self.env_layout, QGridLayout)
+    row = self.env_layout.rowCount() if is_grid_layout else 0
     for key in keys:
         value = current_values.get(key, "")
 
@@ -112,23 +130,10 @@ def create_env_widgets(self, keys: list, current_values: dict):
         widget, display_widget = _create_env_line_edit(self, key, value)
         widget.textChanged.connect(partial(self._debounced_save_env_var, key))
 
-        if isinstance(self.env_layout, QGridLayout):
+        if is_grid_layout:
             self.env_layout.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
             self.env_layout.addWidget(display_widget, row, 1)
-
-            if _is_secret_env_key(key):
-                test_button = QPushButton(self._t("Test"))
-                test_button.setProperty("chipButton", True)
-                test_button.setFixedWidth(60)
-                test_button.clicked.connect(partial(self._on_test_api_clicked, key))
-                self.env_layout.addWidget(test_button, row, 2)
-            elif "MODEL" in key:
-                get_models_button = QPushButton(self._t("Get Models"))
-                get_models_button.setProperty("chipButton", True)
-                get_models_button.setFixedWidth(100)
-                get_models_button.clicked.connect(partial(self._on_get_models_clicked, key))
-                self.env_layout.addWidget(get_models_button, row, 2)
-
+            _add_env_action_button(self, self.env_layout, row, key, key)
             row += 1
         else:
             self.env_layout.addRow(label, display_widget)
@@ -192,20 +197,7 @@ def create_api_rotation_widgets(
             widget.textChanged.connect(partial(self._debounced_save_env_var, key))
             layout.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
             layout.addWidget(display_widget, row, 1)
-
-            if _is_secret_env_key(base_key):
-                test_button = QPushButton(self._t("Test"))
-                test_button.setProperty("chipButton", True)
-                test_button.setFixedWidth(60)
-                test_button.clicked.connect(partial(self._on_test_api_clicked, key))
-                layout.addWidget(test_button, row, 2)
-            elif "MODEL" in base_key:
-                get_models_button = QPushButton(self._t("Get Models"))
-                get_models_button.setProperty("chipButton", True)
-                get_models_button.setFixedWidth(100)
-                get_models_button.clicked.connect(partial(self._on_get_models_clicked, key))
-                layout.addWidget(get_models_button, row, 2)
-
+            _add_env_action_button(self, layout, row, key, base_key)
             self.env_widgets[key] = (label, widget)
             row += 1
 
@@ -256,6 +248,7 @@ def get_env_default_placeholder(self, key: str) -> str:
         "CUSTOM_OPENAI_API_BASE": "https://api.openai.com/v1",
         "GEMINI_API_BASE": "https://generativelanguage.googleapis.com",
         "SAKURA_API_BASE": "http://127.0.0.1:8080/v1",
+        "SAKURA_DICT_PATH": "./dict/sakura_dict.txt",
         "OPENAI_MODEL": "gpt-4o",
         "CUSTOM_OPENAI_MODEL": "qwen2.5:7b",
         "GEMINI_MODEL": "gemini-1.5-flash-002",
@@ -714,6 +707,8 @@ def _is_test_item_configured(test_target: str, api_key: str | None, api_base: st
     if str(api_key or "").strip():
         return True
     normalized = (test_target or "").strip().lower()
+    if "sakura" in normalized:
+        return bool(str(api_base or "").strip())
     return "openai" in normalized and is_openai_api_key_optional("", api_base or "")
 
 
@@ -741,6 +736,20 @@ def _collect_api_test_items(self, section_key: str) -> list[dict]:
     translator_key = _get_current_translator_key(self)
     items: list[dict] = []
     seen: set[str] = set()
+
+    if section_key == "translation" and (translator_key or "").strip().lower() == "sakura":
+        api_base = _read_env_widget_value(self, "SAKURA_API_BASE")
+        if _is_test_item_configured("sakura", None, api_base):
+            items.append(
+                {
+                    "label": _display_env_label(self, "SAKURA_API_BASE"),
+                    "test_target": "sakura",
+                    "api_key": None,
+                    "api_base": api_base,
+                    "model": None,
+                    "endpoint": None,
+                }
+            )
 
     for key in list(self.env_widgets.keys()):
         scope, provider, field = _split_env_key(key)
@@ -934,13 +943,7 @@ def on_test_api_clicked(self, key: str):
     if key not in self.env_widgets:
         return
 
-    translator_key = ""
-    translator_combo = self.findChild(QComboBox, "translator.translator")
-    if translator_combo:
-        translator_display = translator_combo.currentText()
-        reverse_map = {v: k for k, v in self.controller.get_display_mapping("translator").items()}
-        translator_key = reverse_map.get(translator_display, translator_display.lower())
-
+    translator_key = _get_current_translator_key(self)
     test_target, api_key, api_base, model = _resolve_api_context(self, key, translator_key)
     status_endpoint = _build_test_status_endpoint(self, key, test_target, api_key, api_base, model)
 
@@ -1014,13 +1017,7 @@ def on_get_models_clicked(self, key: str):
 
     from ui.secondary_pages.model_selector_dialog import ModelSelectorDialog
 
-    translator_key = ""
-    translator_combo = self.findChild(QComboBox, "translator.translator")
-    if translator_combo:
-        translator_display = translator_combo.currentText()
-        reverse_map = {v: k for k, v in self.controller.get_display_mapping("translator").items()}
-        translator_key = reverse_map.get(translator_display, translator_display.lower())
-
+    translator_key = _get_current_translator_key(self)
     model_api_type, api_key, api_base, _ = _resolve_api_context(self, key, translator_key)
 
     progress = create_progress_dialog(
@@ -1082,7 +1079,7 @@ def on_get_models_clicked(self, key: str):
     self._get_models_thread = get_models_thread
 
 
-def refresh_preset_list(self, deleted_preset_name: str = None):
+def refresh_preset_list(self):
     """刷新预设列表。"""
     if not hasattr(self, "preset_combo"):
         return
@@ -1172,7 +1169,7 @@ def on_delete_preset_clicked(self):
     if reply == QMessageBox.StandardButton.Yes:
         success = self.controller.delete_preset(preset_name)
         if success:
-            self._refresh_preset_list(deleted_preset_name=preset_name)
+            self._refresh_preset_list()
             QMessageBox.information(self, self._t("Success"), self._t("Preset deleted successfully"))
         else:
             QMessageBox.critical(self, self._t("Error"), self._t("Failed to delete preset"))

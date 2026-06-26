@@ -31,6 +31,10 @@ API_GROUP_SPECS = {
     "render_gemini": ("RENDER_GEMINI_API_KEY", "RENDER_GEMINI_MODEL", "RENDER_GEMINI_API_BASE"),
 }
 
+SIMPLE_API_GROUP_SPECS = {
+    "translator_sakura": ("SAKURA_API_BASE", "SAKURA_DICT_PATH"),
+}
+
 
 def _normalize_selected_value(value) -> str:
     raw = getattr(value, "value", value)
@@ -55,6 +59,8 @@ def _selected_api_group_keys(config) -> dict[str, list[str]]:
         result["translation"].append("translator_openai")
     elif translator_value in {"gemini", "gemini_hq"}:
         result["translation"].append("translator_gemini")
+    elif translator_value == "sakura":
+        result["translation"].append("translator_sakura")
 
     selected_ocr_values = [ocr_value]
     if bool(getattr(config.ocr, "use_hybrid_ocr", False)):
@@ -104,13 +110,19 @@ def _add_api_section_panel(
 
     if group_keys:
         for group_key in group_keys:
-            api_key_env, model_env, api_base_env = API_GROUP_SPECS[group_key]
-            self._create_api_rotation_widgets(
-                api_key_env=api_key_env,
-                model_env=model_env,
-                api_base_env=api_base_env,
-                current_values=current_env_values,
-            )
+            if group_key in API_GROUP_SPECS:
+                api_key_env, model_env, api_base_env = API_GROUP_SPECS[group_key]
+                self._create_api_rotation_widgets(
+                    api_key_env=api_key_env,
+                    model_env=model_env,
+                    api_base_env=api_base_env,
+                    current_values=current_env_values,
+                )
+            elif group_key in SIMPLE_API_GROUP_SPECS:
+                self._create_env_widgets(
+                    list(SIMPLE_API_GROUP_SPECS[group_key]),
+                    current_env_values,
+                )
     else:
         hint = QLabel(self._t(empty_hint_key))
         hint.setObjectName("page_subtitle")

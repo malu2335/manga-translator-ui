@@ -32,11 +32,9 @@ from ui.theme import get_current_theme_colors
 
 def _get_replacements_path() -> str:
     """获取 text_replacements.yaml 的路径"""
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    return os.path.join(base_path, 'examples', 'text_replacements.yaml')
+    from manga_translator.rendering.text_replacements import ensure_text_replacements_exists
+
+    return ensure_text_replacements_exists()
 
 
 class YamlHighlighter(QSyntaxHighlighter):
