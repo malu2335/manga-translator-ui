@@ -6,6 +6,7 @@ PaddleOCR-VL-1.6 OCR Model
 """
 
 import os
+import re
 import sys
 from typing import List
 
@@ -131,6 +132,29 @@ class ModelPaddleOCRVL(OfflineOCR):
         "pol": "Polish",
         "ukr": "Ukrainian",
     }
+    _OCR_VL_RETRY_GENERATION_CONFIGS = [
+        {
+            "max_new_tokens": 128,
+            "do_sample": False,
+        },
+        {
+            "max_new_tokens": 64,
+            "do_sample": False,
+            "repetition_penalty": 1.15,
+            "no_repeat_ngram_size": 4,
+        },
+        {
+            "max_new_tokens": 48,
+            "do_sample": False,
+            "repetition_penalty": 1.25,
+            "no_repeat_ngram_size": 3,
+        },
+    ]
+    _OCR_VL_RETRY_PROMPT_SUFFIXES = [
+        "",
+        "\nReturn only the visible OCR text once. Do not repeat characters or punctuation.",
+        "\nOnly output the exact visible text. If unsure, output nothing.",
+    ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -338,6 +362,26 @@ class ModelPaddleOCRVL(OfflineOCR):
             return f"OCR: Extract all {full_name} text."
         return f"OCR: Extract all {language_hint_raw} text."
 
+    def _looks_like_repeated_hallucination(self, text: str) -> bool:
+        """Detect obvious PaddleOCR-VL runaway repetition such as a + many dots."""
+        compact = re.sub(r"\s+", "", text or "")
+        if len(compact) < 24:
+            return False
+
+        if re.search(r"(.)\1{19,}", compact):
+            return True
+
+        if re.search(r"(.{2,8})\1{7,}", compact):
+            return True
+
+        punctuation_count = sum(1 for ch in compact if not ch.isalnum())
+        most_common_count = max(compact.count(ch) for ch in set(compact))
+        return (
+            len(compact) >= 30
+            and punctuation_count / len(compact) >= 0.65
+            and most_common_count / len(compact) >= 0.45
+        )
+
     def _recognize_single(self, img: np.ndarray, prompt_text: str) -> str:
         """
         识别单个图像区域的文本
@@ -358,55 +402,71 @@ class ModelPaddleOCRVL(OfflineOCR):
         if pil_img.mode != 'RGB':
             pil_img = pil_img.convert('RGB')
 
-        # 构建对话消息
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "image": pil_img},
-                    {"type": "text", "text": prompt_text}
-                ]
-            }
-        ]
+        last_output = ''
+        for attempt, (generation_config, retry_suffix) in enumerate(zip(
+            self._OCR_VL_RETRY_GENERATION_CONFIGS,
+            self._OCR_VL_RETRY_PROMPT_SUFFIXES,
+        )):
+            current_prompt = f"{prompt_text}{retry_suffix}"
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "image": pil_img},
+                        {"type": "text", "text": current_prompt}
+                    ]
+                }
+            ]
 
-        # 直接使用 tokenizer 的聊天模板
-        text = self.processor.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-
-        # 预处理
-        inputs = self.processor(
-            text=[text],
-            images=[pil_img],
-            return_tensors="pt",
-            padding=True
-        )
-        
-        # 移除模型不需要的 token_type_ids
-        if 'token_type_ids' in inputs:
-            del inputs['token_type_ids']
-
-        # 移动到设备
-        inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-
-        # 生成文本
-        with torch.no_grad():
-            generated_ids = self.model.generate(
-                **inputs,
-                max_new_tokens=256,
-                do_sample=False
+            # 直接使用 tokenizer 的聊天模板
+            text = self.processor.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
             )
 
-        # 解码 - 只取新生成的部分
-        input_len = inputs["input_ids"].shape[1]
-        generated_ids_trimmed = generated_ids[:, input_len:]
-        output_text = self.processor.batch_decode(
-            generated_ids_trimmed,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False
-        )[0]
+            # 预处理
+            inputs = self.processor(
+                text=[text],
+                images=[pil_img],
+                return_tensors="pt",
+                padding=True
+            )
 
-        return output_text.strip()
+            # 移除模型不需要的 token_type_ids
+            if 'token_type_ids' in inputs:
+                del inputs['token_type_ids']
+
+            # 移动到设备
+            inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+
+            # 生成文本
+            with torch.no_grad():
+                generated_ids = self.model.generate(
+                    **inputs,
+                    **generation_config,
+                )
+
+            # 解码 - 只取新生成的部分
+            input_len = inputs["input_ids"].shape[1]
+            generated_ids_trimmed = generated_ids[:, input_len:]
+            output_text = self.processor.batch_decode(
+                generated_ids_trimmed,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False
+            )[0].strip()
+
+            last_output = output_text
+            if not self._looks_like_repeated_hallucination(output_text):
+                return output_text
+
+            preview = output_text[:80].replace('\n', '\\n')
+            self.logger.warning(
+                f"PaddleOCR-VL repeated-output hallucination detected "
+                f"(attempt={attempt + 1}, preview={preview!r}), retrying"
+            )
+
+        self.logger.warning("PaddleOCR-VL repeated-output hallucination persisted after retries; returning empty text")
+        return '' if self._looks_like_repeated_hallucination(last_output) else last_output
+
 
     def _estimate_colors_48px(self, region: np.ndarray, textline: Quadrilateral):
         """使用 48px 模型预测前景色和背景色"""
