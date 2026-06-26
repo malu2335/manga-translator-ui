@@ -6,7 +6,7 @@ import sys
 import time
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QBrush, QColor, QFontDatabase, QRawFont
+from PyQt6.QtGui import QBrush, QColor, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PIL import Image, ImageDraw, ImageFont
 from utils.app_version import format_version_label
 from utils.resource_helper import resource_path
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
@@ -115,8 +116,7 @@ _SETTINGS_TAB_LAYOUT_FILE = _resolve_settings_tab_layout_file()
 _PROMPT_EXTENSIONS = (".yaml", ".yml", ".json")
 _FONT_EXTENSIONS = (".ttf", ".otf", ".ttc")
 _CURRENT_ASSET_PREFIX = "✓ "
-_FONT_PREVIEW_FACE_CACHE = {}
-_FONT_PREVIEW_REGISTRATION_CACHE = {}
+_FONT_PREVIEW_PIXMAP_CACHE = {}
 
 
 def _load_reclassify_settings_layout():
@@ -132,54 +132,81 @@ def _load_reclassify_settings_layout():
         return []
 
 
-def _font_preview_style(size: int, family_name: str | None = None) -> str:
-    """根据当前主题生成字体预览标签样式。"""
+def _font_preview_style(size: int) -> str:
+    """字体预览文本回退样式。正常预览会直接渲染为 pixmap。"""
     text_color = get_current_theme_colors()["text_primary"]
-    parts = [f"font-size: {size}pt", f"color: {text_color}"]
-    if family_name:
-        parts.insert(0, f"font-family: '{family_name}'")
-    return "; ".join(parts) + ";"
+    return f"font-size: {size}pt; color: {text_color};"
 
 
-def _get_font_preview_face(font_path: str) -> tuple[str | None, str | None]:
-    cached = _FONT_PREVIEW_FACE_CACHE.get(font_path)
+def _render_font_preview_pixmap(font_path: str | None, text: str, size: int) -> QPixmap | None:
+    """Render preview text directly from the font file without Qt family matching."""
+    if not font_path or not os.path.isfile(font_path):
+        return None
+
+    norm_path = os.path.normpath(font_path)
+    text_color = get_current_theme_colors()["text_primary"]
+    try:
+        mtime = os.path.getmtime(norm_path)
+    except OSError:
+        mtime = 0.0
+    cache_key = (norm_path, mtime, text, int(size), text_color)
+    cached = _FONT_PREVIEW_PIXMAP_CACHE.get(cache_key)
     if cached is not None:
-        return cached
-
-    family_name = None
-    style_name = None
+        return QPixmap(cached)
 
     try:
-        raw_font = QRawFont(font_path, 32)
-        if raw_font.isValid():
-            family_name = raw_font.familyName() or family_name
-            style_name = raw_font.styleName() or None
+        font = ImageFont.truetype(norm_path, int(max(size, 1)))
     except Exception:
-        pass
+        return None
 
-    result = (family_name, style_name)
-    _FONT_PREVIEW_FACE_CACHE[font_path] = result
-    return result
-
-
-def _register_font_preview_face(font_path: str) -> tuple[str | None, str | None]:
-    family_name, style_name = _get_font_preview_face(font_path)
-    if font_path not in _FONT_PREVIEW_REGISTRATION_CACHE:
+    lines = str(text or " ").splitlines() or [" "]
+    probe = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(probe)
+    try:
+        ascent, descent = font.getmetrics()
+    except Exception:
+        ascent, descent = int(size), int(size * 0.25)
+    line_gap = max(2, int(round(size * 0.18)))
+    line_height = max(1, ascent + descent + line_gap)
+    bboxes = []
+    max_width = 1
+    for line in lines:
+        content = line or " "
         try:
-            font_id = QFontDatabase.addApplicationFont(font_path)
+            bbox = draw.textbbox((0, 0), content, font=font)
         except Exception:
-            font_id = -1
-        _FONT_PREVIEW_REGISTRATION_CACHE[font_path] = font_id
-    font_id = _FONT_PREVIEW_REGISTRATION_CACHE.get(font_path, -1)
-    if font_id >= 0:
-        try:
-            families = QFontDatabase.applicationFontFamilies(font_id)
-            if families:
-                family_name = families[0]
-        except Exception:
-            pass
-    _FONT_PREVIEW_FACE_CACHE[font_path] = (family_name, style_name)
-    return family_name, style_name
+            bbox = (0, 0, int(size * max(len(content), 1)), line_height)
+        left, top, right, bottom = bbox
+        max_width = max(max_width, right - left)
+        bboxes.append((content, left, top, right, bottom))
+
+    margin = max(4, int(round(size * 0.2)))
+    width = max(1, max_width + margin * 2)
+    height = max(1, line_height * len(lines) + margin * 2)
+    width = max(1, min(width, 4096))
+    height = max(1, min(height, 2048))
+
+    qcolor = QColor(text_color)
+    fill = (
+        qcolor.red() if qcolor.isValid() else 31,
+        qcolor.green() if qcolor.isValid() else 41,
+        qcolor.blue() if qcolor.isValid() else 51,
+        qcolor.alpha() if qcolor.isValid() else 255,
+    )
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    y = margin
+    for content, left, top, _right, _bottom in bboxes:
+        draw.text((margin - left, y - top), content, font=font, fill=fill)
+        y += line_height
+
+    raw_data = image.tobytes("raw", "RGBA")
+    qimage = QImage(raw_data, width, height, QImage.Format.Format_RGBA8888).copy()
+    pixmap = QPixmap.fromImage(qimage)
+    if len(_FONT_PREVIEW_PIXMAP_CACHE) >= 128:
+        _FONT_PREVIEW_PIXMAP_CACHE.clear()
+    _FONT_PREVIEW_PIXMAP_CACHE[cache_key] = QPixmap(pixmap)
+    return pixmap
 
 
 def refresh_font_preview_styles(self):
@@ -1137,8 +1164,8 @@ def create_font_page(self) -> QWidget:
     for i in range(3):
         lbl = QLabel()
         lbl.setObjectName("font_preview_text")
-        lbl.setWordWrap(True)
-        lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        lbl.setWordWrap(False)
+        lbl.setScaledContents(False)
         self.scroll_content_layout.addWidget(lbl)
         self.font_preview_labels.append(lbl)
 
@@ -1146,8 +1173,7 @@ def create_font_page(self) -> QWidget:
     self.font_preview_scroll.setWidget(scroll_content)
     preview_card_layout.addWidget(self.font_preview_scroll, 1)
 
-    self._current_preview_family = None
-    self._current_preview_style = None
+    self._current_preview_font_path = None
     page_layout.addWidget(self.font_preview_card)
 
     # --- Signals ---
@@ -1810,8 +1836,7 @@ def _on_font_selection_changed(self, current, previous):
         return
 
     if not current:
-        self._current_preview_family = None
-        self._current_preview_style = None
+        self._current_preview_font_path = None
         if hasattr(self, "font_preview_name_label"):
             self.font_preview_name_label.setText(self._t("Select a font to preview"))
         self._update_font_preview()
@@ -1825,20 +1850,18 @@ def _on_font_selection_changed(self, current, previous):
     if hasattr(self, "font_preview_name_label"):
         self.font_preview_name_label.setText(font_filename)
 
-    # 读取字体 family/style，并按具体样式创建预览字体
-    family_name = None
-    style_name = None
+    # 后端渲染按真实字体文件路径区分字体，预览也保存文件路径直接渲染 glyph。
     font_path = None
     try:
         fonts_dir = resource_path("fonts")
         font_path = os.path.join(fonts_dir, font_filename)
-        if os.path.isfile(font_path):
-            family_name, style_name = _register_font_preview_face(font_path)
+        if not os.path.isfile(font_path):
+            font_path = None
     except Exception:
+        font_path = None
         pass
 
-    self._current_preview_family = family_name
-    self._current_preview_style = style_name
+    self._current_preview_font_path = font_path
     self._update_font_preview()
 
 
@@ -1861,9 +1884,7 @@ def _update_font_preview(self):
     if hasattr(self, "font_preview_input"):
         custom_text = self.font_preview_input.text().strip()
 
-    # 获取缓存的字体信息
-    family_name = getattr(self, "_current_preview_family", None)
-    style_name = getattr(self, "_current_preview_style", None)
+    font_path = getattr(self, "_current_preview_font_path", None)
 
     # 预设的预览文本与缩放比例
     if custom_text:
@@ -1883,18 +1904,18 @@ def _update_font_preview(self):
         text = preview_texts[i]
         size = max(8, int(round(base_size * size_multipliers[i])))
         
-        # 更新文本
+        pixmap = _render_font_preview_pixmap(font_path, text, size)
+        if pixmap is not None and not pixmap.isNull():
+            lbl.setStyleSheet("background: transparent;")
+            lbl.setText("")
+            lbl.setPixmap(pixmap)
+            lbl.setMinimumSize(pixmap.size())
+            continue
+
+        lbl.clear()
+        lbl.setMinimumSize(0, 0)
         lbl.setText(text)
-        
-        # 更新样式 (颜色与大小)
-        lbl.setStyleSheet(_font_preview_style(size, family_name))
-        
-        # 应用字体
-        if family_name:
-            preview_font = QFontDatabase.font(family_name, style_name or "", size)
-            if style_name:
-                preview_font.setStyleName(style_name)
-            if preview_font.family():
-                lbl.setFont(preview_font)
-                continue
-        lbl.setFont(self.font())
+        lbl.setStyleSheet(_font_preview_style(size))
+        fallback_font = self.font()
+        fallback_font.setPointSize(size)
+        lbl.setFont(fallback_font)
