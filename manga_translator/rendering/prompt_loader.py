@@ -4,12 +4,22 @@ from typing import Optional
 from ..translators.prompt_loader import load_prompt_file
 from ..utils import BASE_PATH
 
-DEFAULT_AI_RENDERER_PROMPT = (
+LEGACY_AI_RENDERER_PROMPTS = (
     "You are a manga typesetting renderer. You will receive a cleaned manga page image with "
     "numbered boxes marking text regions, plus a numbered translation list. Render each provided "
     "translation into the matching numbered region. Preserve artwork, panel borders, perspective, "
     "and reading order. Translate and render every provided item, including sound effects and "
-    "onomatopoeia. Do not invent extra text. Return only the final rendered image."
+    "onomatopoeia. Do not invent extra text. Return only the final rendered image.",
+)
+
+DEFAULT_AI_RENDERER_PROMPT = (
+    "You are a manga typesetting renderer. You will receive a cleaned manga page image with "
+    "numbered boxes marking text regions, plus a numbered translation list. Render each provided "
+    "translation into the matching numbered region. Remove the numbered boxes, their numeric "
+    "labels, outlines, and any helper marks from the final image. Preserve artwork, panel "
+    "borders, perspective, and reading order. Translate and render every provided item, "
+    "including sound effects and onomatopoeia. Do not invent extra text. Return only the final "
+    "rendered image."
 )
 
 DEFAULT_AI_RENDERER_PROMPT_PATH = os.path.join("dict", "ai_renderer_prompt.yaml").replace("\\", "/")
@@ -54,5 +64,10 @@ def save_ai_renderer_prompt_file(path: Optional[str], prompt_text: str) -> str:
 def ensure_ai_renderer_prompt_file(path: Optional[str] = None) -> str:
     resolved_path = resolve_ai_renderer_prompt_path(path)
     if not os.path.exists(resolved_path):
+        save_ai_renderer_prompt_file(resolved_path, DEFAULT_AI_RENDERER_PROMPT)
+        return resolved_path
+
+    current_prompt = load_ai_renderer_prompt_file(resolved_path)
+    if current_prompt in LEGACY_AI_RENDERER_PROMPTS:
         save_ai_renderer_prompt_file(resolved_path, DEFAULT_AI_RENDERER_PROMPT)
     return resolved_path
