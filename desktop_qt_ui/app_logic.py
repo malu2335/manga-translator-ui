@@ -701,7 +701,7 @@ class MainAppLogic(QObject):
     @staticmethod
     def _build_api_test_image_bytes() -> bytes:
         buffer = io.BytesIO()
-        Image.new("RGB", (2, 2), (255, 255, 255)).save(buffer, format="PNG")
+        Image.new("RGB", (50, 50), (255, 255, 255)).save(buffer, format="PNG")
         return buffer.getvalue()
 
     @staticmethod
