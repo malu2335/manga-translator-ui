@@ -461,6 +461,7 @@ The right panel is `Property Editor`, where you can edit:
 
 - `Ctrl+Z`: undo
 - `Ctrl+Y`: redo
+- `Ctrl+A`: select all text boxes on the current image (selects text when a text input is focused)
 - `Ctrl+C`: copy selected region
 - `Ctrl+V`: paste region or style
 - `Delete`: delete selected region

@@ -138,6 +138,14 @@ class EditorShortcutManager(ShortcutManager):
             self._handle_paste,
             context_aware=True
         )
+
+        # 全选快捷键
+        self.register_shortcut(
+            'select_all',
+            QKeySequence.StandardKey.SelectAll,
+            self._handle_select_all,
+            context_aware=True
+        )
         
         # 删除快捷键
         self.register_shortcut(
@@ -248,6 +256,14 @@ class EditorShortcutManager(ShortcutManager):
                 else:
                     self.controller.paste_region()
     
+    def _handle_select_all(self, focused_widget):
+        """处理全选快捷键"""
+        if self.is_text_widget(focused_widget):
+            focused_widget.selectAll()
+        else:
+            regions = self.editor_view.model.get_regions()
+            self.editor_view.model.set_selection(list(range(len(regions))))
+
     def _handle_delete(self, focused_widget):
         """处理删除快捷键"""
         if not self.is_text_widget(focused_widget):

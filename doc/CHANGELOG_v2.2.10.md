@@ -16,6 +16,10 @@
 - 新增 `desktop_qt_ui/ui/theme.py` 和 `desktop_qt_ui/ui/theme_tokens.py`，集中维护主题运行时、调色板和主题 token。
 - 设置页布局文件 `settings_tab_layout.json` 从 `desktop_qt_ui/locales/` 迁移到 `desktop_qt_ui/ui/main_page/`，多语言文本和 UI 布局定义不再混放。
 
+### Qt 编辑器：快捷键
+
+- 新增 `Ctrl+A` 全选当前图片全部文本框；当焦点在输入框或文本编辑框内时，仍保留文本控件自身的全选行为。
+
 ## ⚡ 优化
 
 ### Qt UI：二级页面视觉一致性

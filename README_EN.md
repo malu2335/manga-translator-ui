@@ -80,7 +80,7 @@ The English companion versions of the documents below are being added one by one
 - 📐 **Text Editing** - Manually edit translations and adjust styles
 - 🖌️ **Mask Editing** - Brush and eraser tools for cleanup
 - ⏪ **Undo / Redo** - Full editing history
-- ⌨️ **Shortcut Support** - Supports `A` / `D` to switch images, `Q` / `W` / `E` to switch tools, and `Ctrl+Q` for export in the editor
+- ⌨️ **Shortcut Support** - Supports `A` / `D` to switch images, `Q` / `W` / `E` to switch tools, `Ctrl+A` to select all text boxes, and `Ctrl+Q` to export in the editor
 - 🖱️ **Mouse Wheel Shortcuts** - `Ctrl + wheel` can scale text boxes and `Shift + wheel` can adjust brush size
 
 **Full Feature Reference** → [doc/en/FEATURES.md](doc/en/FEATURES.md)
