@@ -129,6 +129,7 @@ def create_env_widgets(self, keys: list, current_values: dict):
         label = QLabel(f"{label_text}:")
         widget, display_widget = _create_env_line_edit(self, key, value)
         widget.textChanged.connect(partial(self._debounced_save_env_var, key))
+        widget.editingFinished.connect(partial(self._flush_env_var_immediately, key))
 
         if is_grid_layout:
             self.env_layout.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
@@ -195,6 +196,7 @@ def create_api_rotation_widgets(
             label = QLabel(f"{_display_env_label(self, base_key, index)}:")
             widget, display_widget = _create_env_line_edit(self, base_key, value)
             widget.textChanged.connect(partial(self._debounced_save_env_var, key))
+            widget.editingFinished.connect(partial(self._flush_env_var_immediately, key))
             layout.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
             layout.addWidget(display_widget, row, 1)
             _add_env_action_button(self, layout, row, key, base_key)
@@ -275,14 +277,36 @@ def get_env_default_placeholder(self, key: str) -> str:
 
 
 def debounced_save_env_var(self, key: str, text: str):
-    """防抖保存.env变量。"""
+    """防抖保存.env变量，支持多个 Key 同时暂存。"""
+    if not hasattr(self, '_pending_env_vars'):
+        self._pending_env_vars = {}
+    self._pending_env_vars[key] = text
     self._env_debounce_timer.stop()
     try:
         self._env_debounce_timer.timeout.disconnect()
     except TypeError:
         pass
-    self._env_debounce_timer.timeout.connect(lambda: self.env_var_changed.emit(key, text))
+    self._env_debounce_timer.timeout.connect(lambda: flush_all_pending_env_vars(self))
     self._env_debounce_timer.start()
+
+
+def flush_env_var_immediately(self, key: str):
+    """立即保存指定 Key（失去焦点/回车时调用）。"""
+    pending = getattr(self, '_pending_env_vars', {})
+    if key in pending:
+        value = pending.pop(key)
+        self.env_var_changed.emit(key, value)
+
+
+def flush_all_pending_env_vars(self):
+    """立即保存所有暂存的环境变量。"""
+    self._env_debounce_timer.stop()
+    pending = getattr(self, '_pending_env_vars', {})
+    if not pending:
+        return
+    for key, value in list(pending.items()):
+        self.env_var_changed.emit(key, value)
+    pending.clear()
 
 
 API_FEATURE_SELECTOR_SPECS = [
@@ -903,6 +927,7 @@ def _run_api_batch_test(self, items: list[dict]):
 
 
 def on_test_current_api_section_clicked(self, section_key: str):
+    flush_all_pending_env_vars(self)
     _run_api_batch_test(self, _collect_api_test_items(self, section_key))
 
 
@@ -934,6 +959,7 @@ def on_open_custom_api_params_file(self):
 
 def on_test_api_clicked(self, key: str):
     """测试API连接。"""
+    flush_all_pending_env_vars(self)
     import asyncio
 
     from PyQt6.QtCore import QThread
@@ -1008,6 +1034,7 @@ def on_test_api_clicked(self, key: str):
 
 def on_get_models_clicked(self, key: str):
     """获取可用模型列表。"""
+    flush_all_pending_env_vars(self)
     import asyncio
 
     from PyQt6.QtCore import QThread
@@ -1177,6 +1204,7 @@ def on_delete_preset_clicked(self):
 
 def on_preset_changed(self, new_preset_name: str):
     """切换预设时加载新预设。"""
+    flush_all_pending_env_vars(self)
     if not new_preset_name:
         return
 

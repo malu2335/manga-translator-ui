@@ -536,6 +536,8 @@ class MainWindow(QMainWindow):
         Used when user manually switches views.
         """
         self._ensure_editor_initialized()
+        if self.editor_view and self.editor_view.property_panel:
+            self.editor_view.property_panel.repopulate_options()
         self.stacked_widget.setCurrentWidget(self.editor_view)
 
     def enter_editor_mode(self, file_to_load: str = None, files_to_load: list = None):
@@ -546,6 +548,8 @@ class MainWindow(QMainWindow):
         """
         try:
             self._ensure_editor_initialized()
+            if self.editor_view and self.editor_view.property_panel:
+                self.editor_view.property_panel.repopulate_options()
 
             # 获取完整的文件夹树结构
             tree_structure = self.app_logic.get_folder_tree_structure()

@@ -2096,6 +2096,10 @@ class MainAppLogic(QObject):
         except Exception as e:
             self._ui_log(f"重新加载配置时发生严重错误: {e}", "ERROR")
 
+        # 强制保存所有待保存的 API Key
+        if hasattr(self, 'main_view') and self.main_view and hasattr(self.main_view, '_flush_all_pending_env_vars'):
+            self.main_view._flush_all_pending_env_vars()
+
         # 检查是否有任务在运行
         if self.state_manager.is_translating():
             self._ui_log("一个任务已经在运行中。", "WARNING")
