@@ -151,6 +151,12 @@ def build_input_controls_stylesheet(
     selection_bg_key: str | None = None,
     selection_text_key: str | None = None,
 ) -> str:
+    # Separate multi-line controls (QTextEdit, QPlainTextEdit) from single-line controls.
+    # Multi-line controls should NOT get min-height from stylesheet, as it overrides
+    # programmatic setMinimumHeight() and causes them to display as single-line.
+    multiline_controls = ("QTextEdit", "QPlainTextEdit")
+    singleline_controls = tuple(c for c in controls if c not in multiline_controls)
+
     selector = _selector_list(scope, controls)
     hover_selector = _selector_list(scope, tuple(f"{control}:hover" for control in controls))
     focus_selector = _selector_list(scope, tuple(f"{control}:focus" for control in controls))
@@ -191,14 +197,14 @@ def build_input_controls_stylesheet(
     if selection_text_key:
         selection_css += f"\n            selection-color: {colors[selection_text_key]};"
 
-    return f"""
+    # Common styles for ALL controls (no min-height here)
+    base_css = f"""
         {selector} {{
             background: {colors["bg_input"]};
             border: 1px solid {colors[border_key]};
             border-radius: {radius};
             color: {colors[text_color_key]};
-            padding: {padding};
-            min-height: {min_height};{selection_css}
+            padding: {padding};{selection_css}
         }}
         {hover_selector} {{
             border-color: {colors["border_input_hover"]};
@@ -209,6 +215,17 @@ def build_input_controls_stylesheet(
         }}
         {combo_css}
     """
+
+    # Apply min-height ONLY to single-line controls
+    if singleline_controls:
+        sl_selector = _selector_list(scope, singleline_controls)
+        base_css += f"""
+        {sl_selector} {{
+            min-height: {min_height};
+        }}
+    """
+
+    return base_css
 
 
 def build_cta_button_stylesheet(
