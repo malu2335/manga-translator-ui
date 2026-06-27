@@ -1521,6 +1521,17 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         layout_target_font_size = int(max(target_font_size, layout_min_font_size))
                         configured_fixed_font_size = _resolve_configured_fixed_font_size(config)
 
+                        if config.render.optimize_line_breaks and has_br:
+                            optimized_text, _ = optimize_line_breaks_for_region(
+                                region,
+                                config,
+                                layout_target_font_size,
+                                float(line_box_width),
+                                float(line_box_height),
+                            )
+                            region.translation = optimized_text
+                            has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
+
                         if has_br:
                             if configured_fixed_font_size <= 0:
                                 layout_target_font_size = max(
