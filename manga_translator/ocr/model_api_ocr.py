@@ -20,6 +20,7 @@ from ..runtime_api_resolver import resolve_runtime_api_config
 from ..api_key_rotation import run_with_api_candidates
 from ..utils import Quadrilateral
 from ..utils.generic import AvgMeter
+from ..utils.image_modes import normalize_rgb_image
 from .common import OfflineOCR
 from .prompt_loader import (
     DEFAULT_AI_OCR_PROMPT,
@@ -175,8 +176,7 @@ class BaseAPIOCR(OfflineOCR):
 
     def _encode_region_png_base64(self, region: np.ndarray) -> str:
         image = Image.fromarray(region.astype(np.uint8))
-        if image.mode != "RGB":
-            image = image.convert("RGB")
+        image = normalize_rgb_image(image)
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("ascii")

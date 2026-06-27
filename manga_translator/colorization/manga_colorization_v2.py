@@ -6,6 +6,7 @@ import torch
 from PIL import Image
 from torchvision.transforms import ToTensor
 
+from ..utils.image_modes import normalize_rgb_image
 from .common import OfflineColorizer
 from .manga_colorization_v2_utils.denoising.denoiser import FFDNetDenoiser
 from .manga_colorization_v2_utils.networks.models import Colorizer
@@ -49,7 +50,7 @@ class MangaColorizationV2(OfflineColorizer):
 
     async def _infer(self, image: Image.Image, colorization_size: int, denoise_sigma=25, **kwargs) -> Image.Image:
         # Size has to be multiple of 32
-        img = np.array(image.convert('RGBA'))
+        img = np.array(normalize_rgb_image(image))
         original_size = image.size  # 保存原始尺寸 (width, height)
         max_size = min(*img.shape[:2])
         max_size -= max_size % 32

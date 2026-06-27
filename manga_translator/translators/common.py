@@ -18,6 +18,7 @@ from ..utils.openai_compat import (
     is_local_openai_compatible_endpoint,
     resolve_openai_compatible_api_key,
 )
+from ..utils.image_modes import normalize_rgb_image
 from ..utils.retry import (
     get_retry_attempts_from_config,
     normalize_retry_attempts,
@@ -1150,25 +1151,7 @@ def draw_text_boxes_on_image(image, text_regions: List[Any], text_order: List[in
     from PIL import Image as PILImage
     is_pil = isinstance(image, PILImage.Image)
     if is_pil:
-        # 处理各种图片模式，统一转换为RGB
-        pil_image = image
-        if pil_image.mode == "P":
-            pil_image = pil_image.convert("RGBA" if "transparency" in pil_image.info else "RGB")
-        if pil_image.mode == "RGBA":
-            background = PILImage.new('RGB', pil_image.size, (255, 255, 255))
-            background.paste(pil_image, mask=pil_image.split()[-1])
-            pil_image = background
-        elif pil_image.mode in ("LA", "L", "1", "CMYK"):
-            if pil_image.mode == "LA":
-                pil_image = pil_image.convert("RGBA")
-                background = PILImage.new('RGB', pil_image.size, (255, 255, 255))
-                background.paste(pil_image, mask=pil_image.split()[-1])
-                pil_image = background
-            else:
-                pil_image = pil_image.convert("RGB")
-        elif pil_image.mode != "RGB":
-            pil_image = pil_image.convert("RGB")
-        canvas = np.array(pil_image)
+        canvas = np.array(normalize_rgb_image(image))
     else:
         canvas = image.copy()
     

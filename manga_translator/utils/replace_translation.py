@@ -28,6 +28,7 @@ import cv2
 import numpy as np
 
 from .generic import Context, dump_image, imwrite_unicode, open_pil_image
+from .image_modes import normalize_rgb_image
 from .path_manager import TRANSLATED_IMAGES_SUBDIR, get_work_dir
 from .textblock import TextBlock
 
@@ -601,8 +602,8 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
                         
                         # 处理RGBA到RGB转换（JPEG格式不支持透明通道）
                         image_to_save = raw_ctx.result
-                        if final_output_path.lower().endswith(('.jpg', '.jpeg')) and image_to_save.mode in ('RGBA', 'LA'):
-                            image_to_save = image_to_save.convert('RGB')
+                        if final_output_path.lower().endswith(('.jpg', '.jpeg')):
+                            image_to_save = normalize_rgb_image(image_to_save)
                         
                         # raw_ctx.result 已经是 PIL Image，直接保存
                         image_to_save.save(final_output_path, quality=translator.save_quality)

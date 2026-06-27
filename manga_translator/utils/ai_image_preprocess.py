@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 from PIL import Image
 
+from .image_modes import normalize_rgb_image
+
 _LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
 
 
@@ -20,18 +22,7 @@ class SquareImageRestoreInfo:
 
 
 def normalize_ai_image(image: Image.Image) -> Image.Image:
-    if image.mode == "P":
-        image = image.convert("RGBA" if "transparency" in image.info else "RGB")
-
-    if image.mode in ("RGBA", "LA"):
-        rgba_image = image.convert("RGBA")
-        background = Image.new("RGB", rgba_image.size, (255, 255, 255))
-        background.paste(rgba_image, mask=rgba_image.split()[-1])
-        return background
-
-    if image.mode != "RGB":
-        return image.convert("RGB")
-    return image
+    return normalize_rgb_image(image)
 
 
 def prepare_square_ai_image(

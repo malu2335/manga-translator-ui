@@ -169,7 +169,7 @@ class BaseAPIColorizer(CommonColorizer):
                 continue
             try:
                 with Image.open(ref.resolved_path) as reference_image:
-                    reference_rgb = reference_image.convert("RGB")
+                    reference_rgb = normalize_ai_image(reference_image)
                 reference_images.append(
                     {
                         "kind": "prompt_reference",
@@ -269,10 +269,10 @@ class BaseAPIColorizer(CommonColorizer):
         response = await self.client.session.get(url, timeout=600.0)
         if response.status_code != 200:
             raise RuntimeError(f"Failed to download generated image: HTTP {response.status_code}")
-        return Image.open(io.BytesIO(response.content)).convert("RGB")
+        return normalize_ai_image(Image.open(io.BytesIO(response.content)))
 
     def _load_image_from_bytes(self, payload: bytes) -> Image.Image:
-        return Image.open(io.BytesIO(payload)).convert("RGB")
+        return normalize_ai_image(Image.open(io.BytesIO(payload)))
 
     async def _reset_client_for_candidate(self, endpoint, error: Exception):
         del endpoint, error

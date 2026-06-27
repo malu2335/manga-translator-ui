@@ -4,6 +4,7 @@ from abc import abstractmethod
 from PIL import Image
 
 from .utils import Context
+from .utils.image_modes import normalize_rgb_image
 
 
 class FormatNotSupportedException(Exception):
@@ -55,7 +56,7 @@ class JPGFormat(ExportFormat):
     SUPPORTED_FORMATS = ['jpg', 'jpeg']
 
     def _save(self, result: Image.Image, dest: str, ctx: Context):
-        result = result.convert('RGB')
+        result = normalize_rgb_image(result)
         # Certain versions of PIL only support JPEG but not JPG
         result.save(dest, quality=ctx.save_quality, format='JPEG')
 

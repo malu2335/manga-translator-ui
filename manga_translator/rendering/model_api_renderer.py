@@ -219,7 +219,7 @@ class BaseAPIRenderer:
         response = await self.client.session.get(url, timeout=600.0)
         if response.status_code != 200:
             raise RuntimeError(f"Failed to download rendered image: HTTP {response.status_code}")
-        return Image.open(io.BytesIO(response.content)).convert("RGB")
+        return normalize_ai_image(Image.open(io.BytesIO(response.content)))
 
     async def _reset_client_for_candidate(self, endpoint, error: Exception):
         del endpoint, error
@@ -253,7 +253,7 @@ class BaseAPIRenderer:
                 data = inline_data.get("data")
                 if not data:
                     continue
-                return Image.open(io.BytesIO(base64.b64decode(data))).convert("RGB")
+                return normalize_ai_image(Image.open(io.BytesIO(base64.b64decode(data))))
         return None
 
     async def render(self, img: np.ndarray, text_regions: List[TextBlock], config) -> np.ndarray:

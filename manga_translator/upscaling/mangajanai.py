@@ -8,6 +8,7 @@ import torch
 from PIL import Image
 
 from ..utils import get_logger
+from ..utils.image_modes import normalize_rgb_image
 from .common import OfflineUpscaler
 from .esrgan_pytorch import RRDBNet, infer_params
 from .tile_utils import merge_tiles_into_image, split_image_into_tiles
@@ -55,7 +56,7 @@ def is_color_image(image, threshold: float = 0.05) -> bool:
         return False
     
     # 转换为 RGB
-    img_rgb = image.convert('RGB')
+    img_rgb = normalize_rgb_image(image)
     img_np = np.array(img_rgb, dtype=np.float32)
     
     # 方法1: 检查RGB通道的相关性（最可靠的方法）
@@ -116,6 +117,7 @@ def enhance_contrast(image) -> Image.Image:
         image = Image.fromarray(image)
     
     if image.mode != 'L':
+        image = normalize_rgb_image(image)
         image_p = image.convert("L")
     else:
         image_p = image
@@ -188,8 +190,7 @@ def enhance_contrast(image) -> Image.Image:
     elif image.mode == 'L':
         return image.point(lut)
     else:
-        # Convert to RGB, apply, (optional: convert back)
-        return image.convert('RGB').point(lut * 3)
+        return normalize_rgb_image(image).point(lut * 3)
 
 
 class MangaJaNaiUpscaler(OfflineUpscaler):
@@ -470,6 +471,7 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
             # 统一确保输入是 PIL Image
             if isinstance(img, np.ndarray):
                 img = Image.fromarray(img)
+            img = normalize_rgb_image(img)
             
             # 1. Determine best model for this image
             target_model_file = self.model_file
@@ -518,6 +520,7 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
         # 统一确保输入是 PIL Image
         if isinstance(img, np.ndarray):
             img = Image.fromarray(img)
+        img = normalize_rgb_image(img)
         # Check minimum size requirement
         min_size = 40
         original_size = img.size
@@ -548,7 +551,7 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
             logger.debug(f'Padded image from {original_size} to {new_size} for pixel_unshuffle compatibility')
         
         # Convert to tensor: B C H W
-        img_np = np.array(img.convert('RGB'))
+        img_np = np.array(normalize_rgb_image(img))
         tensor = einops.rearrange(torch.from_numpy(img_np).float() / 255.0, 'h w c -> 1 c h w').to(device)
         
         with torch.no_grad():
@@ -581,6 +584,7 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
         # 统一确保输入是 PIL Image
         if isinstance(img, np.ndarray):
             img = Image.fromarray(img)
+        img = normalize_rgb_image(img)
         tiles_with_pos = split_image_into_tiles(img, tile_size, overlap=16)
         
         processed_tiles = []

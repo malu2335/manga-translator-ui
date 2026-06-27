@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from PIL import Image
 
+from .image_modes import normalize_rgb_image
 from .openai_compat import resolve_openai_compatible_api_key
 from .retry import summarize_exception_message, summarize_response_text
 
@@ -805,7 +806,7 @@ def _load_image_from_data_url(value: str) -> Optional[Image.Image]:
 
 def _load_image_from_base64(value: str) -> Optional[Image.Image]:
     try:
-        return Image.open(io.BytesIO(base64.b64decode(value))).convert("RGB")
+        return normalize_rgb_image(Image.open(io.BytesIO(base64.b64decode(value))))
     except Exception:
         return None
 

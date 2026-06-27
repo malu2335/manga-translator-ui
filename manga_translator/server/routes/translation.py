@@ -36,6 +36,7 @@ from manga_translator.server.routes.translation_auth import (
 )
 from manga_translator.server.to_json import TranslationResponse, to_translation
 from manga_translator.utils import open_pil_image
+from manga_translator.utils.image_modes import normalize_rgb_image
 
 router = APIRouter(prefix="/translate", tags=["translation"])
 
@@ -640,12 +641,8 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             img_byte_arr = io.BytesIO()
             # JPEG 不支持 RGBA，需要转换为 RGB
             is_jpeg = save_format == 'JPEG' or output_name.lower().endswith(('.jpg', '.jpeg'))
-            if is_jpeg and img_to_save.mode == 'RGBA':
-                background = Image.new('RGB', img_to_save.size, (255, 255, 255))
-                background.paste(img_to_save, mask=img_to_save.split()[3])
-                img_to_save = background
-            elif is_jpeg and img_to_save.mode not in ('RGB', 'L'):
-                img_to_save = img_to_save.convert('RGB')
+            if is_jpeg and img_to_save.mode not in ('RGB', 'L'):
+                img_to_save = normalize_rgb_image(img_to_save)
             img_to_save.save(img_byte_arr, format=save_format)
             zip_file.writestr(output_name, img_byte_arr.getvalue())
             image_count += 1

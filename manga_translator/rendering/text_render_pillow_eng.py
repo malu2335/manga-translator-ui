@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from ..utils import TextBlock
+from ..utils.image_modes import normalize_rgb_image
 from .ballon_extractor import extract_ballon_region
 from .text_render_eng import _write_region_br_from_lines, seg_eng
 
@@ -254,7 +255,7 @@ def render_textblock_list_eng(
             bboxes[i][0][j] += int(offset[j])
 
     # Apply strokes and paste text
-    img_pil = img_pil.convert("RGB")
+    img_pil = normalize_rgb_image(img_pil)
     img_array = np.array(img_pil)
 
     for rotated_layer, bbox, sw in zip(rotated_text_layers, bboxes, sws):

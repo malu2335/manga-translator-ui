@@ -21,6 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
 
+from ..utils.image_modes import normalize_rgb_image
 from .common import OfflineUpscaler
 
 ####################
@@ -548,7 +549,7 @@ class ESRGANUpscalerPytorch(OfflineUpscaler):
             tensors = []
             original_hw = []
             for img in image_batch:
-                arr = np.array(img.convert('RGB'))[:, :, ::-1].copy()
+                arr = np.array(normalize_rgb_image(img))[:, :, ::-1].copy()
                 t = einops.rearrange(torch.from_numpy(arr).float() / 255.0, 'h w c -> c h w')
                 tensors.append(t)
                 original_hw.append((t.shape[1], t.shape[2]))

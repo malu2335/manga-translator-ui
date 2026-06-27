@@ -16,6 +16,7 @@ import torch
 from PIL import Image
 
 from ..utils import get_logger
+from ..utils.image_modes import normalize_rgb_image
 from .common import OfflineUpscaler
 from .tile_utils import merge_tiles_into_image, split_image_into_tiles
 
@@ -248,6 +249,7 @@ class RealCUGANUpscaler(OfflineUpscaler):
             # 确保输入是 PIL Image
             if isinstance(img, np.ndarray):
                 img = Image.fromarray(img)
+            img = normalize_rgb_image(img)
             
             # Use tiling only if tile_size > 0
             if self.tile_size > 0:
@@ -262,6 +264,8 @@ class RealCUGANUpscaler(OfflineUpscaler):
     
     def _process_single(self, img: Image.Image, device: torch.device) -> Image.Image:
         """Process a single image without tiling"""
+        img = normalize_rgb_image(img)
+
         # Check minimum size requirement for RealCUGAN
         # RealCUGAN uses padding=18/14/19 and then crops -20, requires minimum dimensions
         min_size = 40  # Minimum size to allow padding and cropping
@@ -286,16 +290,7 @@ class RealCUGANUpscaler(OfflineUpscaler):
             padded_img.paste(img, (0, 0))
             img = padded_img
             padded = True
-        
-        # Convert grayscale to RGB if necessary
-        if img.mode in ('L', 'LA'):
-            img = img.convert('RGB')
-        elif img.mode == 'RGBA':
-            # Convert RGBA to RGB by compositing over white background
-            rgb = Image.new('RGB', img.size, (255, 255, 255))
-            rgb.paste(img, mask=img.split()[3])  # Use alpha channel as mask
-            img = rgb
-        
+
         # Convert to tensor
         np_img = np.array(img).astype(np.float32) / 255.0
         

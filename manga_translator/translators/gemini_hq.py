@@ -11,6 +11,7 @@ from PIL import Image
 
 from ..api_key_rotation import APIRotationExhaustedError, run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
+from ..utils.image_modes import normalize_rgb_image
 from .common import (
     VALID_LANGUAGES,
     AsyncGeminiCurlCffi,
@@ -38,30 +39,7 @@ BROWSER_HEADERS = {
 
 def encode_image_for_gemini(image, max_size=1024):
     """将图片处理为适合Gemini API的格式，返回bytes和mime_type"""
-    # 转换图片格式为RGB（处理所有可能的图片模式）
-    if image.mode == "P":
-        # 调色板模式：转换为RGBA（如果有透明度）或RGB
-        image = image.convert("RGBA" if "transparency" in image.info else "RGB")
-
-    if image.mode == "RGBA":
-        # RGBA模式：创建白色背景并合并透明通道
-        background = Image.new('RGB', image.size, (255, 255, 255))
-        background.paste(image, mask=image.split()[-1])
-        image = background
-    elif image.mode in ("LA", "L", "1", "CMYK"):
-        # LA（灰度+透明）、L（灰度）、1（二值）、CMYK：统一转换为RGB
-        if image.mode == "LA":
-            # 灰度+透明：先转RGBA再合并到白色背景
-            image = image.convert("RGBA")
-            background = Image.new('RGB', image.size, (255, 255, 255))
-            background.paste(image, mask=image.split()[-1])
-            image = background
-        else:
-            # 其他模式：直接转RGB
-            image = image.convert("RGB")
-    elif image.mode != "RGB":
-        # 其他未知模式：强制转换为RGB
-        image = image.convert("RGB")
+    image = normalize_rgb_image(image)
 
     # 调整图片大小
     w, h = image.size
@@ -388,12 +366,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
             text_order = data.get('text_order', [])
             upscaled_size = data.get('upscaled_size')
             if text_regions and text_order:
-                # 将PIL图片转换为numpy数组
-                import numpy as np
-                image_array = np.array(image)
-                # 绘制文本框（传入超分尺寸用于坐标转换）
-                image_array = draw_text_boxes_on_image(image_array, text_regions, text_order, upscaled_size)
-                # 转换回PIL图片
+                image_array = draw_text_boxes_on_image(image, text_regions, text_order, upscaled_size)
                 from PIL import Image as PILImage
                 image = PILImage.fromarray(image_array)
                 self.logger.debug(f"已在图片上绘制 {len(text_regions)} 个带编号的文本框")

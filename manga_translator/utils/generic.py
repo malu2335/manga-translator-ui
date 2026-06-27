@@ -30,6 +30,8 @@ import requests
 from shapely import affinity
 from shapely.geometry import MultiPoint, Polygon
 
+from .image_modes import normalize_rgb_image, pil_image_has_alpha
+
 try:
     functools.cached_property
 except AttributeError: # Supports Python versions below 3.8
@@ -207,8 +209,8 @@ def get_image_md5(image) -> str:
         # 将PIL Image转换为字节数据进行MD5计算
         img_byte_arr = io.BytesIO()
         # 统一转换为RGB格式以确保一致性
-        if hasattr(image, 'mode') and image.mode != 'RGB':
-            image = image.convert('RGB')
+        if isinstance(image, Image.Image):
+            image = normalize_rgb_image(image)
         image.save(img_byte_arr, format='PNG')
         img_bytes = img_byte_arr.getvalue()
 
@@ -425,22 +427,16 @@ def load_image(img: Image.Image) -> Tuple[np.ndarray, Optional[Image.Image]]:
         Tuple[np.ndarray, Optional[Image.Image]]: RGB 数组和 alpha 通道
     """
     img = normalize_pil_image(img, eager=False)
-    if img.mode == 'RGBA':
+    if pil_image_has_alpha(img):
         # from https://stackoverflow.com/questions/9166400/convert-rgba-png-to-rgb-with-pil
-        img.load()  # needed for split()
-        background = Image.new('RGB', img.size, (255, 255, 255))
-        alpha_ch = img.split()[3]
-        background.paste(img, mask=alpha_ch)  # 3 is the alpha channel
-        return np.array(background), alpha_ch
-    elif img.mode == 'P':
-        img = img.convert('RGBA')
+        img = img if img.mode == 'RGBA' else img.convert('RGBA')
         img.load()  # needed for split()
         background = Image.new('RGB', img.size, (255, 255, 255))
         alpha_ch = img.split()[3]
         background.paste(img, mask=alpha_ch)  # 3 is the alpha channel
         return np.array(background), alpha_ch
     else:
-        return np.array(img.convert('RGB')), None
+        return np.array(normalize_rgb_image(img)), None
 
 def _resize_alpha_array(alpha, target_shape: tuple[int, int], *, interpolation=cv2.INTER_LINEAR) -> Optional[np.ndarray]:
     if alpha is None:
@@ -595,10 +591,10 @@ def save_pil_image(
     try:
         if target_format in {'JPEG', 'BMP'}:
             if image_to_save.mode != 'RGB':
-                converted_image = image_to_save.convert('RGB')
+                converted_image = normalize_rgb_image(image_to_save)
                 image_to_save = converted_image
         elif image_to_save.mode == 'CMYK':
-            converted_image = image_to_save.convert('RGB')
+            converted_image = normalize_rgb_image(image_to_save)
             image_to_save = converted_image
 
         for key, value in build_preserved_pil_save_kwargs(source_image).items():

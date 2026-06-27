@@ -81,6 +81,7 @@ from .utils.path_manager import (
     get_original_txt_path,
     get_work_image_path,
 )
+from .utils.ai_image_preprocess import normalize_ai_image
 from .utils.translation_text import remove_trailing_period_if_needed
 
 # Will be overwritten by __main__.py if module is being run directly (with python -m)
@@ -1542,7 +1543,7 @@ class MangaTranslator:
         if not isinstance(image, Image.Image):
             image = Image.fromarray(np.asarray(image).astype(np.uint8))
 
-        history_image = image.convert("RGB").copy()
+        history_image = normalize_ai_image(image).copy()
         self._colorizer_history_images.append(history_image)
 
         history_pages = self._get_ai_colorizer_history_pages(config)

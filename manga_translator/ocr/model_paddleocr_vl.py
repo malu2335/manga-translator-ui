@@ -19,6 +19,7 @@ from PIL import Image
 from ..config import OcrConfig
 from ..utils import Quadrilateral
 from ..utils.generic import AvgMeter
+from ..utils.image_modes import normalize_rgb_image
 from .common import OfflineOCR
 
 
@@ -398,9 +399,7 @@ class ModelPaddleOCRVL(OfflineOCR):
         else:
             pil_img = img
 
-        # 确保是 RGB 模式
-        if pil_img.mode != 'RGB':
-            pil_img = pil_img.convert('RGB')
+        pil_img = normalize_rgb_image(pil_img)
 
         last_output = ''
         for attempt, (generation_config, retry_suffix) in enumerate(zip(

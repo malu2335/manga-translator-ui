@@ -5,6 +5,8 @@ import cv2 as cv
 import numpy as np
 from PIL import Image
 
+from ..utils.image_modes import normalize_rgb_image
+
 KERNEL_SIZE = 7
 BORDER_SIZE = 10
 
@@ -19,7 +21,7 @@ def panel_process_image(img: Image.Image):
         The preprocessed image.
     """
 
-    img_gray = cv.cvtColor(np.array(img), cv.COLOR_BGR2GRAY)
+    img_gray = cv.cvtColor(np.array(normalize_rgb_image(img)), cv.COLOR_RGB2GRAY)
     img_gray = cv.GaussianBlur(img_gray, (KERNEL_SIZE, KERNEL_SIZE), 0)
     img_gray = cv.threshold(img_gray, 200, 255, cv.THRESH_BINARY)[1]
 

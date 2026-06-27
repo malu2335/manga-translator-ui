@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
+from ..utils.image_modes import normalize_rgb_image
 from ..utils.onnx_runtime import (
     create_inference_session,
     create_session_options,
@@ -58,11 +59,7 @@ class Tagger :
         _, self.height, _, _ = self.model.get_inputs()[0].shape
 
     def label(self, image: Image) -> Dict[str, float] :
-        # alpha to white
-        image = image.convert('RGBA')
-        new_image = Image.new('RGBA', image.size, 'WHITE')
-        new_image.paste(image, mask=image)
-        image = new_image.convert('RGB')
+        image = normalize_rgb_image(image)
         image = np.asarray(image)
 
         # PIL RGB to OpenCV BGR

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from manga_translator import Config
 from manga_translator.utils import normalize_pil_image, open_pil_image
+from manga_translator.utils.image_modes import normalize_rgb_image
 
 logger = logging.getLogger('manga_translator.server')
 
@@ -922,15 +923,9 @@ async def save_translation_to_history(ctx, username: str, task_id: str, workflow
             # 根据文件扩展名也检查是否需要转换（PIL 可能根据扩展名决定格式）
             is_jpeg = save_format == 'JPEG' or result_path.lower().endswith(('.jpg', '.jpeg'))
             
-            # JPEG 不支持 RGBA，需要转换为 RGB
-            if is_jpeg and img_to_save.mode == 'RGBA':
-                # 创建白色背景并合并
-                background = Image.new('RGB', img_to_save.size, (255, 255, 255))
-                background.paste(img_to_save, mask=img_to_save.split()[3])  # 使用 alpha 通道作为 mask
-                img_to_save = background
-                add_log("Converted RGBA to RGB for JPEG format", "DEBUG")
-            elif is_jpeg and img_to_save.mode not in ('RGB', 'L'):
-                img_to_save = img_to_save.convert('RGB')
+            # JPEG does not support alpha or non-RGB color modes.
+            if is_jpeg and img_to_save.mode not in ('RGB', 'L'):
+                img_to_save = normalize_rgb_image(img_to_save)
                 add_log(f"Converted {ctx.result.mode} to RGB for JPEG format", "DEBUG")
             
             img_to_save.save(result_path, save_format)
