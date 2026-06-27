@@ -157,8 +157,7 @@ def _apply_default_english_line_break_method(
     bubble_layout = bool(getattr(render_cfg, 'bubble_layout_english', False)) if render_cfg is not None else False
     if bubble_layout:
         # 强制设置为横排
-        region._direction = 'horizontal'
-        region.horizontal = True
+        region._direction = 'h'
 
     region_font_path = getattr(region, 'font_path', '') or ''
     resolved_font_path = _resolve_font_path(region_font_path)
