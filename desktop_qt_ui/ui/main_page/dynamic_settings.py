@@ -83,11 +83,29 @@ def _selected_api_group_keys(config) -> dict[str, list[str]]:
     return result
 
 
-def _add_empty_api_hint(self, container_layout, translation_key: str):
-    hint = QLabel(self._t(translation_key))
-    hint.setObjectName("page_subtitle")
-    hint.setWordWrap(True)
-    container_layout.addWidget(hint)
+def _add_empty_api_hint(self, layout, row: int, translation_key: str) -> int:
+    notice = QFrame()
+    notice.setObjectName("api_empty_state")
+    notice.setFrameShape(QFrame.Shape.NoFrame)
+    notice.setMinimumHeight(120)
+    notice.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    notice_layout = QHBoxLayout(notice)
+    notice_layout.setContentsMargins(12, 12, 12, 12)
+    notice_layout.setSpacing(0)
+    notice_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    text = QLabel(self._t(translation_key))
+    text.setObjectName("api_empty_state_text")
+    text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    text.setWordWrap(True)
+    text.setMinimumHeight(56)
+    text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+    notice_layout.addWidget(text, 1)
+    layout.addWidget(notice, row, 0, 1, 3)
+    layout.setRowStretch(row, 1)
+    return row + 1
 
 
 def _add_api_section_panel(
@@ -99,6 +117,8 @@ def _add_api_section_panel(
     empty_hint_key: str,
 ):
     env_input_widget = QWidget()
+    if not group_keys:
+        env_input_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     self.env_layout = QGridLayout(env_input_widget)
     self.env_layout.setColumnStretch(1, 1)
     self.env_layout.setColumnStretch(2, 0)
@@ -124,12 +144,9 @@ def _add_api_section_panel(
                     current_env_values,
                 )
     else:
-        hint = QLabel(self._t(empty_hint_key))
-        hint.setObjectName("page_subtitle")
-        hint.setWordWrap(True)
-        self.env_layout.addWidget(hint, self.env_layout.rowCount(), 0, 1, 3)
+        _add_empty_api_hint(self, self.env_layout, self.env_layout.rowCount(), empty_hint_key)
 
-    container_layout.addWidget(env_input_widget)
+    container_layout.addWidget(env_input_widget, 1 if not group_keys else 0)
 
 
 def _clear_layout_widgets(layout):

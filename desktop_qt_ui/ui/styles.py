@@ -898,6 +898,58 @@ def generate_main_view_style(theme: str = "dark") -> str:
             color: {c["text_row_label"]};
             font-weight: 500;
         }}
+        #settings_scroll_content QFrame#api_slot_card {{
+            background: {c["bg_header_card"]};
+            border: 1px solid {c["border_subtle"]};
+            border-radius: 10px;
+            margin: 2px 0px 6px 0px;
+        }}
+        #settings_scroll_content QWidget#api_slot_header {{
+            background: transparent;
+            border: none;
+        }}
+        #settings_scroll_content QLabel#api_slot_badge {{
+            background: {c["nav_checked_bg"]};
+            border: 1px solid {c["nav_checked_border"]};
+            border-radius: 7px;
+            color: {c["text_bright"]};
+            font-size: 11px;
+            font-weight: 700;
+            padding: 0px;
+        }}
+        #settings_scroll_content QLabel#api_slot_title {{
+            color: {c["text_bright"]};
+            font-size: 13px;
+            font-weight: 600;
+            padding: 0px;
+        }}
+        #settings_scroll_content QFrame#api_slot_divider {{
+            background: {c["divider_sub_line"]};
+            border: none;
+            max-height: 1px;
+        }}
+        #settings_scroll_content QLabel#api_slot_field_label {{
+            color: {c["text_row_label"]};
+            font-size: 12px;
+            font-weight: 500;
+            padding: 2px 0px;
+        }}
+        #main_view_root QPushButton#api_slot_add_button {{
+            margin-top: 2px;
+            padding: 7px 12px;
+        }}
+        #settings_scroll_content QFrame#api_empty_state {{
+            background: {c["bg_surface_soft"]};
+            border: 1px solid {c["border_subtle"]};
+            border-radius: 14px;
+            margin-top: 14px;
+        }}
+        #settings_scroll_content QLabel#api_empty_state_text {{
+            color: {c["text_muted"]};
+            font-size: 20px;
+            font-weight: 500;
+            padding: 0px;
+        }}
         #settings_desc_panel {{
             background: {c["settings_desc_panel_bg"]};
             border: 1px solid {c["border_subtle"]};

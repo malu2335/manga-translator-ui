@@ -4,7 +4,7 @@ import textwrap
 from functools import partial
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QFileDialog, QLabel, QLineEdit
+from PyQt6.QtWidgets import QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 from PyQt6.QtGui import QIcon
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
 from utils.resource_helper import resource_path
@@ -47,7 +47,7 @@ def _set_env_widget_value(widget, value: str) -> None:
         widget.setText(value)
 
 
-def _display_env_label(self, key: str, index: int | None = None) -> str:
+def _display_env_label(self, key: str, index: int | None = None, *, include_index: bool = True) -> str:
     labels_map = self.controller.get_display_mapping("labels") or {}
     display_key = key
     label_text = labels_map.get(key)
@@ -57,7 +57,7 @@ def _display_env_label(self, key: str, index: int | None = None) -> str:
                 display_key = key[len(prefix):]
                 break
         label_text = labels_map.get(display_key, display_key)
-    if index and index > 1:
+    if include_index and index and index > 1:
         return f"{label_text} #{index}"
     return label_text
 
@@ -183,30 +183,74 @@ def create_api_rotation_widgets(
 
     def add_slot(index: int):
         nonlocal row
-        slot_label = QLabel(self._t("API slot {index}", index=index))
+
+        slot_card = QFrame()
+        slot_card.setObjectName("api_slot_card")
+        slot_card.setFrameShape(QFrame.Shape.NoFrame)
+
+        slot_card_layout = QVBoxLayout(slot_card)
+        slot_card_layout.setContentsMargins(12, 10, 12, 12)
+        slot_card_layout.setSpacing(10)
+
+        header_widget = QWidget()
+        header_widget.setObjectName("api_slot_header")
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+
+        slot_badge = QLabel(f"{index:02d}")
+        slot_badge.setObjectName("api_slot_badge")
+        slot_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        slot_badge.setFixedSize(28, 22)
+
+        slot_label = QLabel(self._t("API slot {index}", index="").strip())
+        slot_label.setObjectName("api_slot_title")
         slot_label.setProperty("rowLabel", True)
-        layout.addWidget(slot_label, row, 0, Qt.AlignmentFlag.AlignLeft)
-        row += 1
+
+        slot_line = QFrame()
+        slot_line.setObjectName("api_slot_divider")
+        slot_line.setFrameShape(QFrame.Shape.HLine)
+        slot_line.setFrameShadow(QFrame.Shadow.Plain)
+
+        header_layout.addWidget(slot_badge)
+        header_layout.addWidget(slot_label)
+        header_layout.addWidget(slot_line, 1)
+        slot_card_layout.addWidget(header_widget)
+
+        slot_grid = QGridLayout()
+        slot_grid.setColumnStretch(1, 1)
+        slot_grid.setColumnStretch(2, 0)
+        slot_grid.setHorizontalSpacing(12)
+        slot_grid.setVerticalSpacing(10)
+        slot_grid.setContentsMargins(0, 0, 0, 0)
+        slot_card_layout.addLayout(slot_grid)
+
+        slot_row = 0
 
         for base_key in (api_key_env, model_env, api_base_env):
             key = get_indexed_env_key(base_key, index)
             if not key:
                 continue
             value = current_values.get(key, "")
-            label = QLabel(f"{_display_env_label(self, base_key, index)}:")
+            label = QLabel(f"{_display_env_label(self, base_key, index, include_index=False)}:")
+            label.setObjectName("api_slot_field_label")
             widget, display_widget = _create_env_line_edit(self, base_key, value)
             widget.textChanged.connect(partial(self._debounced_save_env_var, key))
             widget.editingFinished.connect(partial(self._flush_env_var_immediately, key))
-            layout.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
-            layout.addWidget(display_widget, row, 1)
-            _add_env_action_button(self, layout, row, key, base_key)
+            slot_grid.addWidget(label, slot_row, 0, Qt.AlignmentFlag.AlignLeft)
+            slot_grid.addWidget(display_widget, slot_row, 1)
+            _add_env_action_button(self, slot_grid, slot_row, key, base_key)
             self.env_widgets[key] = (label, widget)
-            row += 1
+            slot_row += 1
+
+        layout.addWidget(slot_card, row, 0, 1, 3)
+        row += 1
 
     for slot_index in range(1, slot_count + 1):
         add_slot(slot_index)
 
     add_button = QPushButton(self._t("+ Add API slot"))
+    add_button.setObjectName("api_slot_add_button")
     add_button.setProperty("chipButton", True)
 
     def add_next_slot():
@@ -216,11 +260,11 @@ def create_api_rotation_widgets(
         existing_values = {key: _get_env_widget_value(pair[1]) for key, pair in self.env_widgets.items()}
         next_index = get_rotation_slot_count(existing_values, slot_keys) + 1
         add_slot(next_index)
-        layout.addWidget(add_button, row, 1)
+        layout.addWidget(add_button, row, 0, 1, 3, Qt.AlignmentFlag.AlignLeft)
         row += 1
 
     add_button.clicked.connect(add_next_slot)
-    layout.addWidget(add_button, row, 1)
+    layout.addWidget(add_button, row, 0, 1, 3, Qt.AlignmentFlag.AlignLeft)
     row += 1
 
 
