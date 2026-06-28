@@ -314,11 +314,12 @@ def apply_native_title_bar_theme(widget: QWidget, theme: str | None = None, logg
             _set_dwm_attr(DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, dark_mode)
 
         caption_color = _to_colorref(colors["bg_window_shell"])
-        border_color = _to_colorref(colors["border_sidebar"])
         text_color = _to_colorref(colors["text_bright"] if is_dark_caption else colors["text_accent"])
 
         _set_dwm_attr(DWMWA_CAPTION_COLOR, caption_color)
-        _set_dwm_attr(DWMWA_BORDER_COLOR, border_color)
+        # 不设置 DWMWA_BORDER_COLOR：border_sidebar 是半透明色（如 rgba(0,0,0,0.05)），
+        # 而 COLORREF 不支持 alpha，转换时会丢掉透明度变成纯黑/纯白描边。
+        # 让 Windows 使用原生默认边框，配色更自然。
         _set_dwm_attr(DWMWA_TEXT_COLOR, text_color)
 
         user32.SetWindowPos(

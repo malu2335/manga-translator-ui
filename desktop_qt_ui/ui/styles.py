@@ -180,7 +180,8 @@ def build_input_controls_stylesheet(
             background-color: {colors["bg_dropdown"]};
             alternate-background-color: {colors["bg_dropdown"]};
             color: {colors[text_color_key]};
-            border: 1px solid {colors["border_input"]};
+            border: none;
+            border-radius: 0px;
             selection-background-color: {colors["dropdown_selection"]};
             selection-color: {colors["list_item_selected_text"]};
             outline: none;
