@@ -377,7 +377,7 @@ class GraphicsViewInputMixin:
                        (old_mask_np is not None and not np.array_equal(old_mask_np, new_mask_np))
 
         if mask_changed:
-            from .commands import MaskEditCommand
+            from editor.commands import MaskEditCommand
 
         if self._active_tool in ["pen", "brush"] and np.any(stroke_mask):
             if mask_changed:
@@ -454,7 +454,7 @@ class GraphicsViewInputMixin:
                 self._clear_preview()
                 return
 
-            from .commands import PaintOverlayEditCommand
+            from editor.commands import PaintOverlayEditCommand
 
             command = PaintOverlayEditCommand(
                 model=self.model,
@@ -807,7 +807,7 @@ class GraphicsViewInputMixin:
 
             controller = self._get_controller()
             if controller:
-                from .commands import AddRegionCommand
+                from editor.commands import AddRegionCommand
 
                 self._clear_pending_geometry_edits()
                 command = AddRegionCommand(
