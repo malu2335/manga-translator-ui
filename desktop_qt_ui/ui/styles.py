@@ -180,7 +180,8 @@ def build_input_controls_stylesheet(
             background-color: {colors["bg_dropdown"]};
             alternate-background-color: {colors["bg_dropdown"]};
             color: {colors[text_color_key]};
-            border: 1px solid {colors["border_input"]};
+            border: none;
+            border-radius: 0px;
             selection-background-color: {colors["dropdown_selection"]};
             selection-color: {colors["list_item_selected_text"]};
             outline: none;
@@ -266,14 +267,14 @@ def build_scrollbar_stylesheet(colors: dict, scope: str = "") -> str:
     return f"""
         {_scoped_selector(scope, "QScrollBar:vertical")},
         {_scoped_selector(scope, "QScrollBar:horizontal")} {{
-            background: {colors["bg_scroll"]};
-            border-radius: 6px;
+            background: transparent;
+            border-radius: 3px;
             border: none;
         }}
         {_scoped_selector(scope, "QScrollBar::handle:vertical")},
         {_scoped_selector(scope, "QScrollBar::handle:horizontal")} {{
             background: {colors["scroll_handle"]};
-            border-radius: 6px;
+            border-radius: 3px;
         }}
         {_scoped_selector(scope, "QScrollBar::handle:vertical:hover")},
         {_scoped_selector(scope, "QScrollBar::handle:horizontal:hover")} {{
@@ -632,10 +633,10 @@ def generate_application_stylesheet(theme: str) -> str:
         }}
         {build_scrollbar_stylesheet(c)}
         QScrollBar:vertical {{
-            width: 10px;
+            width: 6px;
         }}
         QScrollBar:horizontal {{
-            height: 10px;
+            height: 6px;
         }}
         QScrollBar::handle:vertical,
         QScrollBar::handle:horizontal {{
