@@ -57,7 +57,14 @@ def _build_endpoint(
     if not str(resolved_api_key or "").strip():
         return None
     base_url = (base_url or "").rstrip("/")
-    status_key = make_endpoint_status_key(feature, provider, index, base_url, model_name)
+    status_key = make_endpoint_status_key(
+        feature,
+        provider,
+        index,
+        base_url,
+        model_name,
+        api_key=resolved_api_key,
+    )
     return APIEndpoint(
         feature=feature,
         provider=provider,

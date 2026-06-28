@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import threading
 import time
@@ -134,8 +135,15 @@ def make_endpoint_status_key(
     slot: int,
     base_url: str,
     model_name: str,
+    api_key: str | None = None,
 ) -> str:
-    return f"{feature}:{provider}:{slot}:{base_url}:{model_name}"
+    api_key_text = str(api_key or "").strip()
+    api_key_fingerprint = (
+        hashlib.sha256(api_key_text.encode("utf-8")).hexdigest()[:12]
+        if api_key_text
+        else "no-key"
+    )
+    return f"{feature}:{provider}:{slot}:{base_url}:{model_name}:{api_key_fingerprint}"
 
 
 def _now() -> float:

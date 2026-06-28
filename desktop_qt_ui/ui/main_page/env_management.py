@@ -758,7 +758,14 @@ def _build_test_status_endpoint(
     _base_field, slot_index = _split_slot_field(field)
     base_url = (api_base or _get_api_address_example(test_target)).rstrip("/")
     model_name = (model or "").strip()
-    status_key = make_endpoint_status_key(feature, provider, slot_index, base_url, model_name)
+    status_key = make_endpoint_status_key(
+        feature,
+        provider,
+        slot_index,
+        base_url,
+        model_name,
+        api_key=api_key,
+    )
     return APIEndpoint(
         feature=feature,
         provider=provider,
