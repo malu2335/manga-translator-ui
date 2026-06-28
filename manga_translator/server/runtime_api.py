@@ -1,6 +1,11 @@
 from typing import Optional
 
 RUNTIME_API_ENV_PRIORITY = {
+    "translator": {
+        "sakura": {
+            "api_base": ["SAKURA_API_BASE"],
+        },
+    },
     "ocr": {
         "openai": {
             "api_key": ["OCR_OPENAI_API_KEY"],

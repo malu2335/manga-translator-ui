@@ -9,8 +9,12 @@ import asyncio
 import logging
 from typing import Callable, List, Tuple
 
+from ..runtime_api_resolver import get_runtime_api_override
 from .common import CommonTranslator, validate_openai_response
 from .keys import SAKURA_API_BASE, SAKURA_DICT_PATH
+
+DEFAULT_SAKURA_API_BASE = 'http://127.0.0.1:8080/v1'
+DEFAULT_SAKURA_DICT_PATH = './dict/sakura_dict.txt'
 
 
 class SakuraDict():
@@ -209,12 +213,10 @@ class SakuraTranslator(CommonTranslator):
 
     def __init__(self):
         super().__init__()
-        self.client = openai.AsyncOpenAI(api_key = openai.api_key or 'empty')
-        if "/v1" not in SAKURA_API_BASE:
-            self.client.base_url = SAKURA_API_BASE + "/v1"
-        else:
-            self.client.base_url = SAKURA_API_BASE
-        self.client.api_key = "sk-114514"
+        self.api_base = self._normalize_api_base(os.getenv('SAKURA_API_BASE') or SAKURA_API_BASE)
+        self.dict_path = os.getenv('SAKURA_DICT_PATH') or SAKURA_DICT_PATH or DEFAULT_SAKURA_DICT_PATH
+        self.client = None
+        self._setup_client()
         self.temperature = 0.3
         self.top_p = 0.3
         self.frequency_penalty = 0.1
@@ -223,8 +225,56 @@ class SakuraTranslator(CommonTranslator):
         self._heart_pattern = re.compile(r'❤')
         self.sakura_dict = SakuraDict(self.get_dict_path(), self.logger)
 
+    @staticmethod
+    def _normalize_api_base(api_base: str) -> str:
+        normalized = (
+            str(api_base or SAKURA_API_BASE or DEFAULT_SAKURA_API_BASE).strip()
+            or DEFAULT_SAKURA_API_BASE
+        )
+        normalized = normalized.rstrip("/")
+        if "/v1" not in normalized:
+            normalized = f"{normalized}/v1"
+        return normalized
+
+    def _setup_client(self):
+        self.client = openai.AsyncOpenAI(
+            api_key="sk-114514",
+            base_url=self.api_base,
+        )
+
+    def parse_args(self, config):
+        super().parse_args(config)
+        translator_args = self._resolve_translator_config(config)
+        user_env_vars = getattr(config, "_user_env_vars", None) or {}
+        runtime_override = get_runtime_api_override(config, "translator", "sakura")
+
+        api_base = (
+            self._get_config_value(translator_args, "user_api_base", None)
+            or runtime_override.get("api_base")
+            or user_env_vars.get("SAKURA_API_BASE")
+            or os.getenv("SAKURA_API_BASE")
+            or SAKURA_API_BASE
+            or DEFAULT_SAKURA_API_BASE
+        )
+        api_base = self._normalize_api_base(api_base)
+        if api_base != self.api_base:
+            self.api_base = api_base
+            self._setup_client()
+            self.logger.info(f"Sakura API base updated: {self.api_base}")
+
+        dict_path = (
+            user_env_vars.get("SAKURA_DICT_PATH")
+            or os.getenv("SAKURA_DICT_PATH")
+            or SAKURA_DICT_PATH
+            or DEFAULT_SAKURA_DICT_PATH
+        )
+        dict_path = str(dict_path or DEFAULT_SAKURA_DICT_PATH).strip() or DEFAULT_SAKURA_DICT_PATH
+        if dict_path != self.dict_path:
+            self.dict_path = dict_path
+            self.sakura_dict = SakuraDict(self.get_dict_path(), self.logger)
+
     def get_dict_path(self):
-        return SAKURA_DICT_PATH
+        return getattr(self, 'dict_path', None) or SAKURA_DICT_PATH or DEFAULT_SAKURA_DICT_PATH
 
     def detect_and_caculate_repeats(self, s: str, threshold: int = _REPEAT_DETECT_THRESHOLD, remove_all=True) -> Tuple[bool, str, int, str]:
         """
@@ -457,6 +507,7 @@ class SakuraTranslator(CommonTranslator):
 
     async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         self.logger.debug(f'Temperature: {self.temperature}, TopP: {self.top_p}')
+        self.logger.info(f'Sakura当前连接地址: {self.api_base}')
         self.logger.debug(f'原文： {queries}')
         text_prompt = '\n'.join(queries)
         self.logger.debug('-- Sakura Prompt --\n' + self._format_prompt_log(text_prompt) + '\n\n')
@@ -500,11 +551,9 @@ class SakuraTranslator(CommonTranslator):
             except (openai.APIError, openai.APIConnectionError) as e:
                 server_error_attempt += 1
                 if server_error_attempt >= self._RETRY_ATTEMPTS:
-                    self.logger.error(f'Sakura API请求失败。错误信息： {e}')
-                    if isinstance(prompt, list):
-                        return "\n".join(prompt)
-                    return str(prompt)
-                self.logger.warning(f'Sakura因服务器错误而进行重试。尝试次数： {server_error_attempt}，错误信息： {e}')
+                    self.logger.error(f'Sakura API请求失败。地址：{self.api_base}，错误信息： {e}')
+                    raise Exception(f'Sakura API请求失败（地址：{self.api_base}）：{e}') from e
+                self.logger.warning(f'Sakura因服务器错误而进行重试。地址：{self.api_base}，尝试次数： {server_error_attempt}，错误信息： {e}')
 
         return response
 
