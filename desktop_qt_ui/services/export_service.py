@@ -371,7 +371,14 @@ class ExportService:
         """保存区域数据到JSON文件，使用正确的图片路径作为键（用于编辑器保存）"""
         # 使用图片的绝对路径作为键，与加载时保持一致
         image_key = os.path.abspath(image_path)
-        self._save_regions_data_internal(regions_data, json_path, image_key, mask, config)
+        self._save_regions_data_internal(
+            regions_data,
+            json_path,
+            image_key,
+            mask,
+            config,
+            preserve_existing_preprocess_flags=True,
+        )
 
     def _save_regions_data(self, regions_data: List[Dict[str, Any]], json_path: str, mask: Optional[np.ndarray] = None, config: Optional[Dict[str, Any]] = None):
         """保存区域数据到JSON文件，确保格式与TextBlock兼容（用于导出）"""
@@ -409,6 +416,64 @@ class ExportService:
         if font_path.lower().startswith('fonts/') or font_path.lower().startswith('fonts\\'):
             return font_path.replace('\\', '/')
         return f"fonts/{font_path}".replace('\\', '/')
+
+    def _read_existing_image_data(self, json_path: str, image_key: str) -> Dict[str, Any]:
+        """读取当前图片已有的 JSON 元数据，用于编辑器导出时保留底图来源标志。"""
+        if not json_path or not os.path.exists(json_path):
+            return {}
+
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                existing_data = json.load(f)
+        except Exception as e:
+            self.logger.debug(f"读取已有JSON失败，无法继承预处理标志: {json_path}: {e}")
+            return {}
+
+        if not isinstance(existing_data, dict):
+            return {}
+
+        image_data = existing_data.get(image_key)
+        if image_data is None:
+            normalized_image_key = os.path.normcase(os.path.abspath(image_key))
+            for existing_key, existing_value in existing_data.items():
+                if not isinstance(existing_key, str):
+                    continue
+                try:
+                    normalized_existing_key = os.path.normcase(os.path.abspath(existing_key))
+                except Exception:
+                    continue
+                if normalized_existing_key == normalized_image_key:
+                    image_data = existing_value
+                    break
+
+        if image_data is None and existing_data:
+            image_data = next(iter(existing_data.values()))
+
+        return image_data if isinstance(image_data, dict) else {}
+
+    def _preserve_existing_preprocess_flags(
+        self,
+        target_data: Dict[str, Any],
+        existing_image_data: Dict[str, Any],
+    ) -> None:
+        """保留 editor_base 是否有效所需的上色/超分标志。"""
+        if not existing_image_data:
+            return
+
+        if not target_data.get('upscale_ratio'):
+            existing_upscale_ratio = existing_image_data.get('upscale_ratio')
+            if existing_upscale_ratio:
+                target_data['upscale_ratio'] = existing_upscale_ratio
+                existing_upscaler = existing_image_data.get('upscaler')
+                if existing_upscaler:
+                    target_data['upscaler'] = existing_upscaler
+                self.logger.info(f"保留已有超分信息: ratio={existing_upscale_ratio}, upscaler={existing_upscaler}")
+
+        if not target_data.get('colorizer'):
+            existing_colorizer = existing_image_data.get('colorizer')
+            if existing_colorizer and str(existing_colorizer).lower() != 'none':
+                target_data['colorizer'] = existing_colorizer
+                self.logger.info(f"保留已有上色信息: colorizer={existing_colorizer}")
     
     def _save_regions_data_internal(
         self,
@@ -418,6 +483,7 @@ class ExportService:
         mask: Optional[np.ndarray] = None,
         config: Optional[Dict[str, Any]] = None,
         skip_text_replacements: bool = False,
+        preserve_existing_preprocess_flags: bool = False,
     ):
         """保存区域数据到JSON文件的内部实现"""
         # 获取超分倍率，用于放大坐标
@@ -575,6 +641,10 @@ class ExportService:
             if colorizer and colorizer != 'none':
                 formatted_data[image_key]['colorizer'] = colorizer
                 self.logger.info(f"在JSON中记录上色信息: colorizer={colorizer}")
+
+        if preserve_existing_preprocess_flags:
+            existing_image_data = self._read_existing_image_data(json_path, image_key)
+            self._preserve_existing_preprocess_flags(formatted_data[image_key], existing_image_data)
         
         # 如果有蒙版数据，则添加到JSON中
         if mask is not None:
