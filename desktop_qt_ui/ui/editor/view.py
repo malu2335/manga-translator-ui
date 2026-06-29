@@ -146,7 +146,7 @@ class EditorView(QWidget):
         self.left_tab_widget = QTabWidget()
         self.left_tab_widget.setObjectName("editor_left_tabs")
         self.left_tab_widget.setMinimumWidth(292)
-        self.left_tab_widget.setMaximumWidth(360)
+        self.left_tab_widget.setMaximumWidth(340)
         
         # 创建“可编辑译文”标签页
         translation_widget = QWidget()
