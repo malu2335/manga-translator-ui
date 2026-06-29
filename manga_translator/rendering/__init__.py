@@ -2117,6 +2117,17 @@ async def dispatch(
         Renderer.openai_renderer,
         Renderer.gemini_renderer,
     ):
+        if not skip_text_replacements:
+            from .text_replacements import apply_replacements, load_replacements
+            _repl_rules = load_replacements()
+            for _region in text_regions:
+                if not _region.translation:
+                    continue
+                if not getattr(_region, 'translation_raw', ''):
+                    _region.translation_raw = _region.translation
+                _direction = 1 if _region.vertical else 0
+                _region.translation = apply_replacements(_region.translation, _direction, _repl_rules)
+
         from .model_api_renderer import dispatch_api_rendering
 
         return await dispatch_api_rendering(img=img, text_regions=text_regions, config=config)

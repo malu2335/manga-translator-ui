@@ -14,7 +14,6 @@ from ..custom_api_params import (
 )
 from ..api_key_rotation import run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
-from ..translators.common import draw_text_boxes_on_image
 from ..utils import TextBlock, get_logger
 from ..utils.ai_image_preprocess import (
     normalize_ai_image,
@@ -168,30 +167,23 @@ class BaseAPIRenderer:
         offset_y: int = 0,
     ) -> str:
         base_prompt = self._build_base_prompt().strip()
-        lines = [base_prompt, "", "Numbered translation list:"]
-        for index, region in enumerate(text_regions, start=1):
+        lines = [base_prompt, "", "Translation list with original texts as reference:"]
+        for region in text_regions:
             translation = self._format_prompt_value(getattr(region, "translation", "") or "")
             if not translation:
                 continue
             original = self._format_prompt_value(getattr(region, "text", "") or "")
-            x1, y1, x2, y2 = [int(round(v)) for v in region.xyxy]
-            x1 += offset_x
-            x2 += offset_x
-            y1 += offset_y
-            y2 += offset_y
             direction = "vertical" if region.vertical else "horizontal"
-            lines.append(f"{index}. translation: {translation}")
+            lines.append(f"- translation: {translation}")
             if original:
-                lines.append(f"   original: {original}")
-            lines.append(f"   direction: {direction}")
-            lines.append(f"   box: ({x1}, {y1}) -> ({x2}, {y2})")
+                lines.append(f"  original: {original}")
+            lines.append(f"  direction: {direction}")
         lines.extend(
             [
                 "",
                 "Rules:",
-                "- Match each translated line to the same numbered box on the image.",
+                "- Match each translated line to the corresponding bubble on the image using the original text as reference.",
                 "- Render every provided translation, including sound effects and onomatopoeia.",
-                "- Remove all numbered boxes, numbers, outlines, and helper marks from the final image.",
                 "- Keep the page layout and artwork intact.",
                 "- Return only the fully rendered image.",
             ]
@@ -267,12 +259,7 @@ class BaseAPIRenderer:
         if not renderable_regions:
             return img
 
-        numbered_image = draw_text_boxes_on_image(
-            img.copy(),
-            renderable_regions,
-            list(range(1, len(renderable_regions) + 1)),
-        )
-        request_image, restore_info = prepare_square_ai_image(self._to_pil(numbered_image))
+        request_image, restore_info = prepare_square_ai_image(self._to_pil(img))
         prompt_text = self._compose_render_prompt(
             renderable_regions,
             offset_x=restore_info.offset_x,

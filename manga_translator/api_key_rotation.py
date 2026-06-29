@@ -207,6 +207,8 @@ def _extract_status_code(error: Exception) -> int | None:
             return int(getattr(response, "status_code", None))
         except (TypeError, ValueError):
             pass
+    if isinstance(error, (RuntimeError, ValueError, TypeError, KeyError, AttributeError)):
+        return None
     match = _STATUS_RE.search(str(error or ""))
     if match:
         try:

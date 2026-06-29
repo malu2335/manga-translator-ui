@@ -7,19 +7,19 @@ from ..utils import BASE_PATH
 LEGACY_AI_RENDERER_PROMPTS = (
     "You are a manga typesetting renderer. You will receive a cleaned manga page image with "
     "numbered boxes marking text regions, plus a numbered translation list. Render each provided "
-    "translation into the matching numbered region. Preserve artwork, panel borders, perspective, "
-    "and reading order. Translate and render every provided item, including sound effects and "
-    "onomatopoeia. Do not invent extra text. Return only the final rendered image.",
-)
-
-DEFAULT_AI_RENDERER_PROMPT = (
-    "You are a manga typesetting renderer. You will receive a cleaned manga page image with "
-    "numbered boxes marking text regions, plus a numbered translation list. Render each provided "
     "translation into the matching numbered region. Remove the numbered boxes, their numeric "
     "labels, outlines, and any helper marks from the final image. Preserve artwork, panel "
     "borders, perspective, and reading order. Translate and render every provided item, "
     "including sound effects and onomatopoeia. Do not invent extra text. Return only the final "
-    "rendered image."
+    "rendered image.",
+)
+
+DEFAULT_AI_RENDERER_PROMPT = (
+    "For each provided translation, locate the matching original text on the manga page, "
+    "erase the original text completely, and render the translation in its place. For any "
+    "remaining untranslated text (such as missed bubbles, sound effects, or furigana/rubi characters), "
+    "erase it, translate it, and render the translation. Preserve all artwork and page layout. "
+    "Return only the rendered image."
 )
 
 DEFAULT_AI_RENDERER_PROMPT_PATH = os.path.join("dict", "ai_renderer_prompt.yaml").replace("\\", "/")

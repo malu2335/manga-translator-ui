@@ -2979,11 +2979,11 @@ class TranslationWorker(QObject):
 
         # 检查是否是模型不支持多模态
         elif ("不支持多模态" in real_error or
-              "multimodal" in real_error.lower() or
-              "vision" in real_error.lower() or
-              "image_url" in real_error.lower() or
-              "expected `text`" in real_error.lower() or
-              "unknown variant" in real_error.lower()):
+              ("multimodal" in real_error.lower() and "renderer" not in real_error.lower()) or
+              ("vision" in real_error.lower() and "renderer" not in real_error.lower()) or
+              ("image_url" in real_error.lower() and "renderer" not in real_error.lower()) or
+              ("expected `text`" in real_error.lower() and "renderer" not in real_error.lower()) or
+              ("unknown variant" in real_error.lower() and "renderer" not in real_error.lower())):
             friendly_msg += "🔍 错误原因：模型不支持多模态输入\n\n"
             friendly_msg += "📝 详细说明：\n"
             friendly_msg += "   当前使用的是「高质量翻译器」（OpenAI高质量翻译 或 Gemini高质量翻译），\n"
