@@ -47,6 +47,96 @@ def _get_translator_name(config) -> str:
     return "unknown"
 
 
+async def _read_form_image_and_config(image: UploadFile, config: str):
+    return await image.read(), parse_config(config)
+
+
+def _translation_bytes_response(ctx) -> StreamingResponse:
+    return StreamingResponse(content=to_translation(ctx).to_bytes())
+
+
+def _png_response_from_ctx(ctx, error_detail: str) -> StreamingResponse:
+    if not ctx.result:
+        raise HTTPException(500, detail=error_detail)
+
+    img_byte_arr = io.BytesIO()
+    ctx.result.save(img_byte_arr, format="PNG")
+    img_byte_arr.seek(0)
+    return StreamingResponse(img_byte_arr, media_type="image/png")
+
+
+async def _authorize_translation(req: Request, config, *, set_username: bool = False):
+    username, ip_address = await verify_translation_auth(req, config)
+    if set_username:
+        config._username = username
+    return username, ip_address
+
+
+async def _authorize_translation_with_env(
+    req: Request,
+    config,
+    user_env_vars: str,
+    *,
+    set_username: bool = False,
+):
+    username, ip_address = await _authorize_translation(req, config, set_username=set_username)
+    env_vars = await apply_user_env_vars(user_env_vars, config, admin_settings, username)
+    config._user_env_vars = env_vars
+    return username, ip_address
+
+
+async def _run_tracked_translation(
+    req: Request,
+    config,
+    image_data,
+    workflow: str,
+    build_response,
+    *,
+    set_username: bool = False,
+):
+    username, ip_address = await _authorize_translation(req, config, set_username=set_username)
+    track_task_start(username)
+
+    try:
+        log_translation_task_created(
+            username,
+            ip_address,
+            _get_translator_name(config),
+            config,
+        )
+        ctx = await get_ctx(req, config, image_data, workflow)
+        return build_response(ctx)
+    finally:
+        track_task_end(username)
+
+
+async def _stream_translation(
+    req: Request,
+    transform,
+    config,
+    image_data,
+    workflow: str,
+    *,
+    filename: str = None,
+    log_task: bool = True,
+    username: str = None,
+    ip_address: str = None,
+):
+    if username is None or ip_address is None:
+        username, ip_address = await _authorize_translation(req, config, set_username=True)
+    else:
+        config._username = username
+
+    if log_task:
+        log_translation_task_created(
+            username,
+            ip_address,
+            _get_translator_name(config),
+            config,
+        )
+    return await while_streaming(req, transform, config, image_data, workflow, filename)
+
+
 # ============================================================================
 # Basic Translation Endpoints (JSON format)
 # ============================================================================
@@ -55,89 +145,42 @@ def _get_translator_name(config) -> str:
              response_description="json structure inspired by the ichigo translator extension")
 async def translate_json(req: Request, data: TranslateRequest):
     """Translate image and return JSON format result"""
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, data.config)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(data.config, 'translator') and hasattr(data.config.translator, 'translator'):
-        translator = data.config.translator.translator
-    
-    # Track task start (检查并发限制，如果超限会抛出 429 错误)
-    track_task_start(username)
-    
-    try:
-        # Log task creation
-        log_translation_task_created(username, ip_address, translator, data.config)
-        
-        # Process translation
-        ctx = await get_ctx(req, data.config, data.image, "save_json")
-        return to_translation(ctx)
-    finally:
-        # Track task end (只有 track_task_start 成功后才会执行到这里)
-        track_task_end(username)
+    return await _run_tracked_translation(
+        req,
+        data.config,
+        data.image,
+        "save_json",
+        to_translation,
+    )
 
 
 @router.post("/bytes", response_class=StreamingResponse, tags=["api", "json"],
              response_description="custom byte structure for decoding look at examples in 'examples/response.*'")
 async def bytes(req: Request, data: TranslateRequest):
     """Translate image and return custom byte format result"""
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, data.config)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(data.config, 'translator') and hasattr(data.config.translator, 'translator'):
-        translator = data.config.translator.translator
-    
-    # Track task start
-    track_task_start(username)
-    
-    try:
-        # Log task creation
-        log_translation_task_created(username, ip_address, translator, data.config)
-        
-        # Process translation
-        ctx = await get_ctx(req, data.config, data.image, "save_json")
-        return StreamingResponse(content=to_translation(ctx).to_bytes())
-    finally:
-        # Track task end
-        track_task_end(username)
+    return await _run_tracked_translation(
+        req,
+        data.config,
+        data.image,
+        "save_json",
+        _translation_bytes_response,
+    )
 
 
 @router.post("/image", response_description="the result image", tags=["api", "json"],
              response_class=StreamingResponse)
 async def image(req: Request, data: TranslateRequest) -> StreamingResponse:
     """Translate image and return result image"""
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, data.config)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(data.config, 'translator') and hasattr(data.config.translator, 'translator'):
-        translator = data.config.translator.translator
-    
-    # Track task start
-    track_task_start(username)
-    
-    try:
-        # Log task creation
-        log_translation_task_created(username, ip_address, translator, data.config)
-        
-        # Process translation
-        ctx = await get_ctx(req, data.config, data.image, "normal")
-        
-        if not ctx.result:
-            raise HTTPException(500, detail="Translation failed: no result image generated")
-        
-        img_byte_arr = io.BytesIO()
-        ctx.result.save(img_byte_arr, format="PNG")
-        img_byte_arr.seek(0)
-
-        return StreamingResponse(img_byte_arr, media_type="image/png")
-    finally:
-        # Track task end
-        track_task_end(username)
+    return await _run_tracked_translation(
+        req,
+        data.config,
+        data.image,
+        "normal",
+        lambda ctx: _png_response_from_ctx(
+            ctx,
+            "Translation failed: no result image generated",
+        ),
+    )
 
 
 # ============================================================================
@@ -148,66 +191,21 @@ async def image(req: Request, data: TranslateRequest) -> StreamingResponse:
              response_description="A stream over elements with structure(1byte status, 4 byte size, n byte data)")
 async def stream_json(req: Request, data: TranslateRequest) -> StreamingResponse:
     """Translate image and stream JSON format result with progress"""
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, data.config)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(data.config, 'translator') and hasattr(data.config.translator, 'translator'):
-        translator = data.config.translator.translator
-    
-    # Log task creation
-    log_translation_task_created(username, ip_address, translator, data.config)
-    
-    # Store username in config for task tracking
-    data.config._username = username
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_json, data.config, data.image, "save_json")
+    return await _stream_translation(req, transform_to_json, data.config, data.image, "save_json")
 
 
 @router.post("/bytes/stream", response_class=StreamingResponse, tags=["api", "json"],
              response_description="A stream over elements with structure(1byte status, 4 byte size, n byte data)")
 async def stream_bytes(req: Request, data: TranslateRequest) -> StreamingResponse:
     """Translate image and stream byte format result with progress"""
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, data.config)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(data.config, 'translator') and hasattr(data.config.translator, 'translator'):
-        translator = data.config.translator.translator
-    
-    # Log task creation
-    log_translation_task_created(username, ip_address, translator, data.config)
-    
-    # Store username in config for task tracking
-    data.config._username = username
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_bytes, data.config, data.image, "save_json")
+    return await _stream_translation(req, transform_to_bytes, data.config, data.image, "save_json")
 
 
 @router.post("/image/stream", response_class=StreamingResponse, tags=["api", "json"],
              response_description="A stream over elements with structure(1byte status, 4 byte size, n byte data)")
 async def stream_image(req: Request, data: TranslateRequest) -> StreamingResponse:
     """Translate image and stream result image with progress"""
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, data.config)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(data.config, 'translator') and hasattr(data.config.translator, 'translator'):
-        translator = data.config.translator.translator
-    
-    # Log task creation
-    log_translation_task_created(username, ip_address, translator, data.config)
-    
-    # Store username in config for task tracking
-    data.config._username = username
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_image, data.config, data.image, "normal")
+    return await _stream_translation(req, transform_to_image, data.config, data.image, "normal")
 
 
 # ============================================================================
@@ -218,65 +216,48 @@ async def stream_image(req: Request, data: TranslateRequest) -> StreamingRespons
              response_description="json structure inspired by the ichigo translator extension")
 async def translate_json_form(req: Request, image: UploadFile = File(...), config: str = Form("{}")):
     """Translate image (form upload) and return JSON format result"""
-    img = await image.read()
-    conf = parse_config(config)
-    username, ip_address = await verify_translation_auth(req, conf)
-    translator = _get_translator_name(conf)
-    conf._username = username
-    track_task_start(username)
-
-    try:
-        log_translation_task_created(username, ip_address, translator, conf)
-        ctx = await get_ctx(req, conf, img, "save_json")
-        return to_translation(ctx)
-    finally:
-        track_task_end(username)
+    img, conf = await _read_form_image_and_config(image, config)
+    return await _run_tracked_translation(
+        req,
+        conf,
+        img,
+        "save_json",
+        to_translation,
+        set_username=True,
+    )
 
 
 @router.post("/with-form/bytes", response_class=StreamingResponse, tags=["api", "form"],
              response_description="custom byte structure for decoding look at examples in 'examples/response.*'")
 async def bytes_form(req: Request, image: UploadFile = File(...), config: str = Form("{}")):
     """Translate image (form upload) and return custom byte format result"""
-    img = await image.read()
-    conf = parse_config(config)
-    username, ip_address = await verify_translation_auth(req, conf)
-    translator = _get_translator_name(conf)
-    conf._username = username
-    track_task_start(username)
-
-    try:
-        log_translation_task_created(username, ip_address, translator, conf)
-        ctx = await get_ctx(req, conf, img, "save_json")
-        return StreamingResponse(content=to_translation(ctx).to_bytes())
-    finally:
-        track_task_end(username)
+    img, conf = await _read_form_image_and_config(image, config)
+    return await _run_tracked_translation(
+        req,
+        conf,
+        img,
+        "save_json",
+        _translation_bytes_response,
+        set_username=True,
+    )
 
 
 @router.post("/with-form/image", response_description="the result image", tags=["api", "form"],
              response_class=StreamingResponse)
 async def image_form(req: Request, image: UploadFile = File(...), config: str = Form("{}")) -> StreamingResponse:
     """Translate image (form upload) and return result image"""
-    img = await image.read()
-    conf = parse_config(config)
-    username, ip_address = await verify_translation_auth(req, conf)
-    translator = _get_translator_name(conf)
-    conf._username = username
-    track_task_start(username)
-
-    try:
-        log_translation_task_created(username, ip_address, translator, conf)
-        ctx = await get_ctx(req, conf, img, "normal")
-
-        if not ctx.result:
-            raise HTTPException(500, detail="Translation failed: no result image generated")
-
-        img_byte_arr = io.BytesIO()
-        ctx.result.save(img_byte_arr, format="PNG")
-        img_byte_arr.seek(0)
-
-        return StreamingResponse(img_byte_arr, media_type="image/png")
-    finally:
-        track_task_end(username)
+    img, conf = await _read_form_image_and_config(image, config)
+    return await _run_tracked_translation(
+        req,
+        conf,
+        img,
+        "normal",
+        lambda ctx: _png_response_from_ctx(
+            ctx,
+            "Translation failed: no result image generated",
+        ),
+        set_username=True,
+    )
 
 
 # ============================================================================
@@ -287,41 +268,25 @@ async def image_form(req: Request, image: UploadFile = File(...), config: str = 
              response_description="A stream over elements with structure(1byte status, 4 byte size, n byte data)")
 async def stream_json_form(req: Request, image: UploadFile = File(...), config: str = Form("{}")) -> StreamingResponse:
     """Translate image (form upload) and stream JSON format result with progress"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, conf)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(conf, 'translator') and hasattr(conf.translator, 'translator'):
-        translator = conf.translator.translator
-    
-    # Log task creation
-    log_translation_task_created(username, ip_address, translator, conf)
-    
-    # Store username in config for task tracking
-    conf._username = username
-    
+    img, conf = await _read_form_image_and_config(image, config)
     # Mark this as Web frontend call for placeholder optimization
     conf._is_web_frontend = True
-    return await while_streaming(req, transform_to_json, conf, img, "save_json")
+    return await _stream_translation(req, transform_to_json, conf, img, "save_json")
 
 
 @router.post("/with-form/bytes/stream", response_class=StreamingResponse, tags=["api", "form"],
              response_description="A stream over elements with structure(1byte status, 4 byte size, n byte data)")
 async def stream_bytes_form(req: Request, image: UploadFile = File(...), config: str = Form("{}")) -> StreamingResponse:
     """Translate image (form upload) and stream byte format result with progress"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and get username
-    username, _ = await verify_translation_auth(req, conf)
-    conf._username = username
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_bytes, conf, img, "save_json")
+    img, conf = await _read_form_image_and_config(image, config)
+    return await _stream_translation(
+        req,
+        transform_to_bytes,
+        conf,
+        img,
+        "save_json",
+        log_task=False,
+    )
 
 
 @router.post("/with-form/image/stream", response_class=StreamingResponse, tags=["api", "form"],
@@ -329,32 +294,25 @@ async def stream_bytes_form(req: Request, image: UploadFile = File(...), config:
 async def stream_image_form(req: Request, image: UploadFile = File(...), config: str = Form("{}"), 
                            user_env_vars: str = Form("{}")) -> StreamingResponse:
     """Generic streaming endpoint: returns complete image data, suitable for API calls and comicread scripts"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, conf)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(conf, 'translator') and hasattr(conf.translator, 'translator'):
-        translator = conf.translator.translator
-    
-    # Log task creation
-    log_translation_task_created(username, ip_address, translator, conf)
-    
-    # Store username in config for task tracking
-    conf._username = username
-    
-    # Parse user-provided API Keys and store in config (also checks user's preset)
-    env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
-    conf._user_env_vars = env_vars  # Store in config object for translator use
-    
+    img, conf = await _read_form_image_and_config(image, config)
+    username, ip_address = await _authorize_translation_with_env(
+        req,
+        conf,
+        user_env_vars,
+        set_username=True,
+    )
     # Mark as generic mode, no placeholder optimization
     conf._web_frontend_optimized = False
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_image, conf, img, "normal", image.filename)
+    return await _stream_translation(
+        req,
+        transform_to_image,
+        conf,
+        img,
+        "normal",
+        filename=image.filename,
+        username=username,
+        ip_address=ip_address,
+    )
 
 
 @router.post("/with-form/image/stream/web", response_class=StreamingResponse, tags=["api", "form"],
@@ -362,32 +320,25 @@ async def stream_image_form(req: Request, image: UploadFile = File(...), config:
 async def stream_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
                                 user_env_vars: str = Form("{}")) -> StreamingResponse:
     """Web frontend specific endpoint: uses placeholder optimization for ultra-fast experience"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and permissions
-    username, ip_address = await verify_translation_auth(req, conf)
-    
-    # Extract translator name
-    translator = "unknown"
-    if hasattr(conf, 'translator') and hasattr(conf.translator, 'translator'):
-        translator = conf.translator.translator
-    
-    # Log task creation
-    log_translation_task_created(username, ip_address, translator, conf)
-    
-    # Store username in config for task tracking
-    conf._username = username
-    
-    # Parse user-provided API Keys and store in config (also checks user's preset)
-    env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
-    conf._user_env_vars = env_vars  # Store in config object for translator use
-    
+    img, conf = await _read_form_image_and_config(image, config)
+    username, ip_address = await _authorize_translation_with_env(
+        req,
+        conf,
+        user_env_vars,
+        set_username=True,
+    )
     # Mark as Web frontend optimized mode, use placeholder optimization
     conf._web_frontend_optimized = True
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_image, conf, img, "normal", image.filename)
+    return await _stream_translation(
+        req,
+        transform_to_image,
+        conf,
+        img,
+        "normal",
+        filename=image.filename,
+        username=username,
+        ip_address=ip_address,
+    )
 
 
 # ============================================================================
@@ -936,120 +887,102 @@ async def export_translated_stream(req: Request, image: UploadFile = File(...), 
 async def upscale_only(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
                        user_env_vars: str = Form("{}")):
     """Upscale only (image super-resolution)"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and get username for preset
-    username, _ = await verify_translation_auth(req, conf)
-    env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
-    conf._user_env_vars = env_vars
-    
+    img, conf = await _read_form_image_and_config(image, config)
+    await _authorize_translation_with_env(req, conf, user_env_vars)
     ctx = await get_ctx(req, conf, img, "upscale_only")
-    
-    if ctx.result:
-        img_byte_arr = io.BytesIO()
-        ctx.result.save(img_byte_arr, format="PNG")
-        img_byte_arr.seek(0)
-        return StreamingResponse(img_byte_arr, media_type="image/png")
-    else:
-        raise HTTPException(500, detail="Upscaling failed")
+    return _png_response_from_ctx(ctx, "Upscaling failed")
 
 
 @router.post("/colorize", response_class=StreamingResponse, tags=["api", "process"])
 async def colorize_only(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
                         user_env_vars: str = Form("{}")):
     """Colorize only (black and white image colorization)"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and get username for preset
-    username, _ = await verify_translation_auth(req, conf)
-    env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
-    conf._user_env_vars = env_vars
-    
+    img, conf = await _read_form_image_and_config(image, config)
+    await _authorize_translation_with_env(req, conf, user_env_vars)
     ctx = await get_ctx(req, conf, img, "colorize_only")
-    
-    if ctx.result:
-        img_byte_arr = io.BytesIO()
-        ctx.result.save(img_byte_arr, format="PNG")
-        img_byte_arr.seek(0)
-        return StreamingResponse(img_byte_arr, media_type="image/png")
-    else:
-        raise HTTPException(500, detail="Colorization failed")
+    return _png_response_from_ctx(ctx, "Colorization failed")
 
 
 @router.post("/inpaint", response_class=StreamingResponse, tags=["api", "process"])
 async def inpaint_only(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
                        user_env_vars: str = Form("{}")):
     """Inpaint only (detect text and inpaint image)"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and get username for preset
-    username, _ = await verify_translation_auth(req, conf)
-    env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
-    conf._user_env_vars = env_vars
-    
+    img, conf = await _read_form_image_and_config(image, config)
+    await _authorize_translation_with_env(req, conf, user_env_vars)
     ctx = await get_ctx(req, conf, img, "inpaint_only")
-    
-    if ctx.result:
-        img_byte_arr = io.BytesIO()
-        ctx.result.save(img_byte_arr, format="PNG")
-        img_byte_arr.seek(0)
-        return StreamingResponse(img_byte_arr, media_type="image/png")
-    else:
-        raise HTTPException(500, detail="Inpainting failed")
+    return _png_response_from_ctx(ctx, "Inpainting failed")
 
 
 @router.post("/upscale/stream", response_class=StreamingResponse, tags=["api", "process", "stream"])
 async def upscale_only_stream(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
                               user_env_vars: str = Form("{}")):
     """Upscale only (streaming, with progress)"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and get username for preset
-    username, _ = await verify_translation_auth(req, conf)
-    env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
-    conf._user_env_vars = env_vars
-    conf._username = username
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_image, conf, img, "upscale_only", image.filename)
+    img, conf = await _read_form_image_and_config(image, config)
+    username, ip_address = await _authorize_translation_with_env(
+        req,
+        conf,
+        user_env_vars,
+        set_username=True,
+    )
+    return await _stream_translation(
+        req,
+        transform_to_image,
+        conf,
+        img,
+        "upscale_only",
+        filename=image.filename,
+        log_task=False,
+        username=username,
+        ip_address=ip_address,
+    )
 
 
 @router.post("/colorize/stream", response_class=StreamingResponse, tags=["api", "process", "stream"])
 async def colorize_only_stream(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
                                user_env_vars: str = Form("{}")):
     """Colorize only (streaming, with progress)"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and get username for preset
-    username, _ = await verify_translation_auth(req, conf)
-    env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
-    conf._user_env_vars = env_vars
-    conf._username = username
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_image, conf, img, "colorize_only", image.filename)
+    img, conf = await _read_form_image_and_config(image, config)
+    username, ip_address = await _authorize_translation_with_env(
+        req,
+        conf,
+        user_env_vars,
+        set_username=True,
+    )
+    return await _stream_translation(
+        req,
+        transform_to_image,
+        conf,
+        img,
+        "colorize_only",
+        filename=image.filename,
+        log_task=False,
+        username=username,
+        ip_address=ip_address,
+    )
 
 
 @router.post("/inpaint/stream", response_class=StreamingResponse, tags=["api", "process", "stream"])
 async def inpaint_only_stream(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
                               user_env_vars: str = Form("{}")):
     """Inpaint only (streaming, with progress)"""
-    img = await image.read()
-    conf = parse_config(config)
-    
-    # Verify authentication and get username for preset
-    username, _ = await verify_translation_auth(req, conf)
-    env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
-    conf._user_env_vars = env_vars
-    conf._username = username
-    
-    # Process translation (并发控制在 while_streaming 内部处理)
-    return await while_streaming(req, transform_to_image, conf, img, "inpaint_only", image.filename)
+    img, conf = await _read_form_image_and_config(image, config)
+    username, ip_address = await _authorize_translation_with_env(
+        req,
+        conf,
+        user_env_vars,
+        set_username=True,
+    )
+    return await _stream_translation(
+        req,
+        transform_to_image,
+        conf,
+        img,
+        "inpaint_only",
+        filename=image.filename,
+        log_task=False,
+        username=username,
+        ip_address=ip_address,
+    )
 
 
 
