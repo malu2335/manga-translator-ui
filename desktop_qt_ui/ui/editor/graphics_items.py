@@ -47,6 +47,8 @@ from PyQt6.QtWidgets import (
 
 logger = logging.getLogger("manga_translator")
 
+DRAWING_TOOLS = frozenset({"pen", "brush", "eraser", "paint", "paint_erase"})
+
 
 # ======================================================================
 # 辅助类
@@ -995,7 +997,8 @@ class RegionTextItem(QGraphicsItemGroup):
             if not self.scene():
                 super().hoverMoveEvent(event)
                 return
-            if self._active_view_tool() in ("pen", "brush", "eraser"):
+            if self._active_view_tool() in DRAWING_TOOLS:
+                self._clear_hover_cursor()
                 super().hoverMoveEvent(event)
                 return
 
