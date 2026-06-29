@@ -388,6 +388,10 @@ class MainView(QWidget):
 
     def _clear_dynamic_settings(self):
         """清理所有动态创建的设置控件。"""
+        self._settings_ui_ready = False
+        self._settings_rendered_signature = None
+        self._settings_pending_signature = None
+
         if hasattr(self, "env_group_container_layout"):
             while self.env_group_container_layout.count():
                 item = self.env_group_container_layout.takeAt(0)

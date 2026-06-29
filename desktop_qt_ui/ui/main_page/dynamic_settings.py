@@ -1,3 +1,4 @@
+import json
 import os
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
@@ -387,6 +388,21 @@ def set_parameters(self, config: dict):
     """
     Receives a config dictionary and starts the incremental creation of setting widgets.
     """
+    try:
+        config_signature = json.dumps(config, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:
+        config_signature = None
+
+    if (
+        config_signature is not None
+        and getattr(self, "_settings_ui_ready", False)
+        and getattr(self, "_settings_rendered_signature", None) == config_signature
+    ):
+        return
+
+    self._settings_ui_ready = False
+    self._settings_pending_signature = config_signature
+
     # Clear existing widgets immediately
     for panel in self.tab_frames.values():
         layout = panel.layout()
@@ -637,6 +653,8 @@ def _finalize_settings_ui(self):
 
     self._refresh_prompt_manager()
     self._refresh_font_manager()
+    self._settings_rendered_signature = getattr(self, "_settings_pending_signature", None)
+    self._settings_ui_ready = True
 
 def _create_dynamic_settings(self):
     """读取配置文件并动态创建所有设置控件"""

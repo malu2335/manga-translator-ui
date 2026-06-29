@@ -1289,7 +1289,7 @@ def switch_content_page(self, page_key: str):
         if nav_button and not nav_button.isChecked():
             nav_button.setChecked(True)
 
-        if page_key == "settings":
+        if page_key == "settings" and not getattr(self, "_settings_ui_ready", False):
             self.set_parameters(self.controller.config_service.get_config().model_dump())
         if page_key == "env":
             self._refresh_env_api_groups()
