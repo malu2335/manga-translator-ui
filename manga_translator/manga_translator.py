@@ -243,10 +243,6 @@ def _keep_language_matches(detected_lang: str, keep_lang: str) -> bool:
     return False
 
 
-def set_main_logger(l):
-    global logger
-    logger = l
-
 class TranslationInterrupt(Exception):
     """
     Can be raised from within a progress hook to prematurely terminate
@@ -285,41 +281,6 @@ def apply_dictionary(text, dictionary):
         text = pattern.sub(value, text)
     return text
 
-def parse_upscale_ratio(upscale_ratio) -> float:
-    """
-    解析超分倍率，支持多种格式：
-    - 数字: 2, 3, 4
-    - 字符串数字: "2", "3", "4"
-    - mangajanai格式: "x2", "x4", "DAT2 x4"
-    - realcugan格式: "2x-conservative", "3x-denoise1x" 等
-    
-    返回浮点数倍率，如果无法解析则返回 0
-    """
-    if not upscale_ratio:
-        return 0
-    
-    try:
-        if isinstance(upscale_ratio, (int, float)):
-            return float(upscale_ratio)
-        
-        if isinstance(upscale_ratio, str):
-            # 移除空格并转小写
-            upscale_ratio = upscale_ratio.strip().lower()
-            # 优先匹配开头的数字（如 "2x-conservative" 中的 2）
-            match = re.match(r'^(\d+)x', upscale_ratio)
-            if not match:
-                # 如果没匹配到，尝试匹配任意位置的数字（如 "x2" 或 "DAT2 x4"）
-                match = re.search(r'(\d+)', upscale_ratio)
-            
-            if match:
-                return float(match.group(1))
-        
-        return 0
-    except (ValueError, TypeError):
-        logger.warning(f"无法解析超分倍率: {upscale_ratio}, 将忽略")
-        return 0
-
-
 def _parse_skip_font_scaling_flag(value, default: bool = True) -> bool:
     """Normalize skip_font_scaling values loaded from JSON."""
     if isinstance(value, bool):
@@ -340,6 +301,19 @@ class MangaTranslator:
     _progress_hooks: list[Any]
     result_sub_folder: str
     batch_size: int
+
+    _CONTEXT_INTERMEDIATE_FIELDS = (
+        'img_rgb',
+        'img_colorized',
+        'upscaled',
+        'img_inpainted',
+        'img_rendered',
+        'img_render_alpha',
+        'img_alpha',
+        'mask',
+        'mask_raw',
+        'textlines',
+    )
 
     def __init__(self, params: dict = {}):
         self.pre_dict = params.get('pre_dict', None)
@@ -993,18 +967,20 @@ class MangaTranslator:
         except Exception as e:
             logger.warning(f"Failed to delete original text file {original_txt_path}: {e}")
 
-    async def _handle_generate_and_export(
+    async def _handle_template_export(
         self,
         ctx: Context,
         config: Config,
-        ensure_json_with_empty_regions: bool = False
+        ensure_json_with_empty_regions: bool,
+        *,
+        imported_yolo_mode_label: str,
+        mask_error_mode_label: str,
+        empty_regions_mode_label: str,
+        generator_name: str,
+        export_log_label: str,
+        export_error_label: str,
     ) -> None:
-        """
-        Shared generate_and_export workflow:
-        1) refine mask if available
-        2) save JSON
-        3) export translated TXT via template
-        """
+        """Shared template export workflow for original/translated text modes."""
         image_name = getattr(ctx, 'image_name', None)
         if not image_name:
             return
@@ -1014,20 +990,20 @@ class MangaTranslator:
 
         # 导入 YOLO 框的导出模式不保存蒙版
         if getattr(ctx, 'used_imported_yolo_labels', False):
-            logger.info("Import YOLO labels enabled in generate_and_export mode: skipping mask refinement and mask save")
+            logger.info(f"Import YOLO labels enabled in {imported_yolo_mode_label}: skipping mask refinement and mask save")
             ctx.mask = None
             ctx.mask_raw = None
-        # 导出翻译模式：强制执行蒙版优化（跳过修复）
+        # 导出模式：强制执行蒙版优化（跳过修复）
         elif has_non_empty_regions and ctx.mask is None and ctx.mask_raw is not None:
             await self._report_progress('mask-generation')
             try:
                 ctx.mask = await self._run_mask_refinement(config, ctx)
             except Exception:
-                logger.error(f"Error during mask-generation in generate_and_export mode:\n{traceback.format_exc()}")
+                logger.error(f"Error during mask-generation in {mask_error_mode_label}:\n{traceback.format_exc()}")
                 ctx.mask = ctx.mask_raw  # 回退到原始蒙版
         elif not has_non_empty_regions and ctx.mask_raw is not None:
             logger.info(
-                f"Generate-and-export mode: no text regions for {os.path.basename(image_name)}, "
+                f"{empty_regions_mode_label}: no text regions for {os.path.basename(image_name)}, "
                 "skipping mask refinement and exporting empty JSON/TXT only"
             )
 
@@ -1040,20 +1016,41 @@ class MangaTranslator:
         try:
             json_path = find_json_path(image_name)
             if json_path and os.path.exists(json_path):
-                from desktop_qt_ui.services.workflow_service import (
-                    generate_translated_text,
-                    get_template_path_from_config,
-                )
-                template_path = get_template_path_from_config()
+                from desktop_qt_ui.services import workflow_service
+                template_path = workflow_service.get_template_path_from_config()
                 if template_path and os.path.exists(template_path):
-                    translated_result = generate_translated_text(json_path, template_path)
-                    logger.info(f"Translated text export for {os.path.basename(image_name)}: {translated_result}")
+                    export_result = getattr(workflow_service, generator_name)(json_path, template_path)
+                    logger.info(f"{export_log_label} for {os.path.basename(image_name)}: {export_result}")
                 else:
                     logger.warning(f"Template file not found for {os.path.basename(image_name)}: {template_path}")
             else:
                 logger.warning(f"JSON file not found for {os.path.basename(image_name)}")
         except Exception as e:
-            logger.error(f"Failed to export clean text for {os.path.basename(image_name)}: {e}")
+            logger.error(f"{export_error_label} for {os.path.basename(image_name)}: {e}")
+
+    async def _handle_generate_and_export(
+        self,
+        ctx: Context,
+        config: Config,
+        ensure_json_with_empty_regions: bool = False
+    ) -> None:
+        """
+        Shared generate_and_export workflow:
+        1) refine mask if available
+        2) save JSON
+        3) export translated TXT via template
+        """
+        await self._handle_template_export(
+            ctx,
+            config,
+            ensure_json_with_empty_regions,
+            imported_yolo_mode_label="generate_and_export mode",
+            mask_error_mode_label="generate_and_export mode",
+            empty_regions_mode_label="Generate-and-export mode",
+            generator_name="generate_translated_text",
+            export_log_label="Translated text export",
+            export_error_label="Failed to export clean text",
+        )
 
     async def _handle_template_and_save_text(
         self,
@@ -1067,55 +1064,17 @@ class MangaTranslator:
         2) save JSON
         3) export original TXT via template
         """
-        image_name = getattr(ctx, 'image_name', None)
-        if not image_name:
-            return
-
-        has_regions = hasattr(ctx, 'text_regions') and ctx.text_regions is not None
-        has_non_empty_regions = has_regions and bool(ctx.text_regions)
-
-        # 导入 YOLO 框的导出模式不保存蒙版
-        if getattr(ctx, 'used_imported_yolo_labels', False):
-            logger.info("Import YOLO labels enabled in template mode: skipping mask refinement and mask save")
-            ctx.mask = None
-            ctx.mask_raw = None
-        # 导出原文模式：强制执行蒙版优化（跳过修复）
-        elif has_non_empty_regions and ctx.mask is None and ctx.mask_raw is not None:
-            await self._report_progress('mask-generation')
-            try:
-                ctx.mask = await self._run_mask_refinement(config, ctx)
-            except Exception:
-                logger.error(f"Error during mask-generation in template mode:\n{traceback.format_exc()}")
-                ctx.mask = ctx.mask_raw  # 回退到原始蒙版
-        elif not has_non_empty_regions and ctx.mask_raw is not None:
-            logger.info(
-                f"Template mode: no text regions for {os.path.basename(image_name)}, "
-                "skipping mask refinement and exporting empty JSON/TXT only"
-            )
-
-        should_export = has_regions and (has_non_empty_regions or ensure_json_with_empty_regions)
-        if not should_export:
-            return
-
-        self._save_text_to_file(image_name, ctx, config)
-
-        try:
-            json_path = find_json_path(image_name)
-            if json_path and os.path.exists(json_path):
-                from desktop_qt_ui.services.workflow_service import (
-                    generate_original_text,
-                    get_template_path_from_config,
-                )
-                template_path = get_template_path_from_config()
-                if template_path and os.path.exists(template_path):
-                    original_result = generate_original_text(json_path, template_path)
-                    logger.info(f"Original text export for {os.path.basename(image_name)}: {original_result}")
-                else:
-                    logger.warning(f"Template file not found for {os.path.basename(image_name)}: {template_path}")
-            else:
-                logger.warning(f"JSON file not found for {os.path.basename(image_name)}")
-        except Exception as e:
-            logger.error(f"Failed to export original text for {os.path.basename(image_name)}: {e}")
+        await self._handle_template_export(
+            ctx,
+            config,
+            ensure_json_with_empty_regions,
+            imported_yolo_mode_label="template mode",
+            mask_error_mode_label="template mode",
+            empty_regions_mode_label="Template mode",
+            generator_name="generate_original_text",
+            export_log_label="Original text export",
+            export_error_label="Failed to export original text",
+        )
 
     def _save_inpainted_image(self, image_path: str, inpainted_img: np.ndarray):
         """保存修复后的图片到 inpainted 目录。"""
@@ -2021,6 +1980,16 @@ class MangaTranslator:
             f"total={snapshot['total_mb']:.1f}MB"
         )
     
+    def _clear_context_intermediate_fields(self, ctx, include_result=False):
+        for field_name in self._CONTEXT_INTERMEDIATE_FIELDS:
+            if hasattr(ctx, field_name) and getattr(ctx, field_name) is not None:
+                delattr(ctx, field_name)
+                setattr(ctx, field_name, None)
+
+        if include_result and hasattr(ctx, 'result') and ctx.result is not None:
+            del ctx.result
+            ctx.result = None
+
     def _cleanup_context_memory(self, ctx, keep_result=True):
         """
         清理单个上下文的中间数据（用于特殊模式）
@@ -2043,49 +2012,7 @@ class MangaTranslator:
             ctx.input = None
         
         # 清理中间处理图像
-        if hasattr(ctx, 'img_rgb') and ctx.img_rgb is not None:
-            del ctx.img_rgb
-            ctx.img_rgb = None
-        
-        if hasattr(ctx, 'img_colorized') and ctx.img_colorized is not None:
-            del ctx.img_colorized
-            ctx.img_colorized = None
-        
-        if hasattr(ctx, 'upscaled') and ctx.upscaled is not None:
-            del ctx.upscaled
-            ctx.upscaled = None
-        
-        if hasattr(ctx, 'img_inpainted') and ctx.img_inpainted is not None:
-            del ctx.img_inpainted
-            ctx.img_inpainted = None
-        
-        if hasattr(ctx, 'img_rendered') and ctx.img_rendered is not None:
-            del ctx.img_rendered
-            ctx.img_rendered = None
-
-        if hasattr(ctx, 'img_render_alpha') and ctx.img_render_alpha is not None:
-            del ctx.img_render_alpha
-            ctx.img_render_alpha = None
-        
-        if hasattr(ctx, 'img_alpha') and ctx.img_alpha is not None:
-            del ctx.img_alpha
-            ctx.img_alpha = None
-        
-        if hasattr(ctx, 'mask') and ctx.mask is not None:
-            del ctx.mask
-            ctx.mask = None
-        
-        if hasattr(ctx, 'mask_raw') and ctx.mask_raw is not None:
-            del ctx.mask_raw
-            ctx.mask_raw = None
-
-        if hasattr(ctx, 'textlines') and ctx.textlines is not None:
-            ctx.textlines = None
-
-        # 如果不保留结果，也清理 result
-        if not keep_result and hasattr(ctx, 'result') and ctx.result is not None:
-            del ctx.result
-            ctx.result = None
+        self._clear_context_intermediate_fields(ctx, include_result=not keep_result)
         
         # 强制垃圾回收和GPU显存清理
         self._cleanup_gpu_memory()
@@ -2146,40 +2073,7 @@ class MangaTranslator:
         if translated_contexts:
             for ctx, _ in translated_contexts:
                 # 清理中间处理图像（使用 del 显式删除）
-                if hasattr(ctx, 'img_rgb') and ctx.img_rgb is not None:
-                    del ctx.img_rgb
-                    ctx.img_rgb = None
-                if hasattr(ctx, 'img_colorized') and ctx.img_colorized is not None:
-                    del ctx.img_colorized
-                    ctx.img_colorized = None
-                if hasattr(ctx, 'upscaled') and ctx.upscaled is not None:
-                    del ctx.upscaled
-                    ctx.upscaled = None
-                if hasattr(ctx, 'img_inpainted') and ctx.img_inpainted is not None:
-                    del ctx.img_inpainted
-                    ctx.img_inpainted = None
-                if hasattr(ctx, 'img_rendered') and ctx.img_rendered is not None:
-                    del ctx.img_rendered
-                    ctx.img_rendered = None
-                if hasattr(ctx, 'img_render_alpha') and ctx.img_render_alpha is not None:
-                    del ctx.img_render_alpha
-                    ctx.img_render_alpha = None
-                if hasattr(ctx, 'img_alpha') and ctx.img_alpha is not None:
-                    del ctx.img_alpha
-                    ctx.img_alpha = None
-                if hasattr(ctx, 'mask') and ctx.mask is not None:
-                    del ctx.mask
-                    ctx.mask = None
-                if hasattr(ctx, 'mask_raw') and ctx.mask_raw is not None:
-                    del ctx.mask_raw
-                    ctx.mask_raw = None
-                if hasattr(ctx, 'textlines') and ctx.textlines is not None:
-                    ctx.textlines = None
-
-                # 如果不保留结果，也清理 result
-                if not keep_results and hasattr(ctx, 'result') and ctx.result is not None:
-                    del ctx.result
-                    ctx.result = None
+                self._clear_context_intermediate_fields(ctx, include_result=not keep_results)
             
             translated_contexts.clear()
         
@@ -2905,60 +2799,6 @@ class MangaTranslator:
 
         return json.dumps(history_turns, ensure_ascii=False, separators=(',', ':'))
 
-    async def _dispatch_with_context(self, config: Config, texts: list[str], ctx: Context):
-        # Attach config to context for translators that need it
-        ctx.config = config
-
-        # 计算实际要使用的上下文页数和跳过的空页数
-        # Calculate the actual number of context pages to use and empty pages to skip
-        done_pages = self.all_page_translations
-        if self.context_size > 0 and done_pages:
-            pages_expected = min(self.context_size, len(done_pages))
-            non_empty_pages = [
-                page for page in done_pages
-                if self._page_has_context_entries(page)
-            ]
-            pages_used = min(self.context_size, len(non_empty_pages))
-            skipped = pages_expected - pages_used
-        else:
-            pages_used = skipped = 0
-
-        if self.context_size > 0:
-            logger.info(f"Context-aware translation enabled with {self.context_size} pages of history")
-
-        # 构建上下文字符串
-        # Build the context string
-        prev_ctx = self._build_prev_context()
-
-        # 如果是 OpenAI 翻译器，则专门处理上下文注入
-        # Special handling for OpenAI translator: inject context
-        if config.translator.translator == Translator.openai:
-            from .translators.openai import OpenAITranslator
-            translator = OpenAITranslator()
-
-            translator.parse_args(config)
-            translator.set_prev_context(prev_ctx)
-
-            if pages_used > 0:
-                context_count = prev_ctx.count('"translation"')
-                logger.info(f"Carrying {pages_used} pages of context, {context_count} sentences as translation reference")
-            if skipped > 0:
-                logger.warning(f"Skipped {skipped} pages with no sentences")
-                
-
-
-            # OpenAI 需要传递 ctx 参数（用于AI断句）
-            return await translator._translate(ctx.from_lang, config.translator.target_lang, texts, ctx)
-        else:
-            return await dispatch_translation(
-                config.translator.translator_gen,
-                texts,
-                config,
-                False,  # use_mtpe removed
-                ctx,
-                'cpu' if self._gpu_limited_memory else self.device
-            )
-        
     async def _load_and_prepare_prompts(self, config: Config, ctx: Context):
         """Loads custom HQ and line break prompts into the context object."""
         from .translators.prompt_loader import (
@@ -4505,6 +4345,7 @@ class MangaTranslator:
                 continue
                 
             # 批量翻译
+            merged_ctx = None
             try:
                 await self._report_progress('translating')
                 # 使用第一个配置进行翻译（假设批次内配置相同）
@@ -4773,202 +4614,16 @@ class MangaTranslator:
                     self._mark_context_failure(ctx, FileTranslationFailure("translation", e), stage='translation')
                     ctx.text_regions = []
                 results.extend(batch)
-            
-            # ✅ 翻译批次完成后清理内存
-            # 清理merged_ctx和batch中的临时数据
-                if 'merged_ctx' in locals() and merged_ctx:
+            finally:
+                # 翻译批次完成后清理内存
+                # 清理merged_ctx和batch中的临时数据
+                if merged_ctx:
                     merged_ctx.text_regions = None
                     merged_ctx = None
                 batch = None
                 self._cleanup_gpu_memory(aggressive=True)
 
         return results
-
-    async def _concurrent_translate_contexts(self, contexts_with_configs: List[tuple]) -> List[tuple]:
-        """
-        并发处理翻译步骤，为每个图片单独发送翻译请求，避免合并大批次
-        """
-
-        # 在并发模式下，先保存所有页面的原文用于上下文
-        batch_original_texts = []  # 存储当前批次的原文
-        if self.context_size > 0:
-            for i, (ctx, config) in enumerate(contexts_with_configs):
-                if ctx.text_regions:
-                    # 保存当前页面的原文
-                    page_texts = {}
-                    for j, region in enumerate(ctx.text_regions):
-                        page_texts[j] = region.text
-                    batch_original_texts.append(page_texts)
-
-                    # 确保 _original_page_texts 有足够的长度
-                    while len(self._original_page_texts) <= len(self.all_page_translations) + i:
-                        self._original_page_texts.append({})
-
-                    self._original_page_texts[len(self.all_page_translations) + i] = page_texts
-                else:
-                    batch_original_texts.append({})
-
-        async def translate_single_context(ctx_config_pair_with_index):
-            """翻译单个context的异步函数"""
-            ctx, config, page_index, batch_index = ctx_config_pair_with_index
-            try:
-                if not ctx.text_regions:
-                    return ctx, config
-
-                # 收集该context的所有文本
-                texts = [region.text for region in ctx.text_regions if region.text is not None]
-
-                if not texts:
-                    return ctx, config
-
-                logger.debug(f'Translating {len(texts)} regions for single image in concurrent mode (page {page_index}, batch {batch_index})')
-
-                # 单独翻译这一张图片的文本，传递页面索引和批次索引用于正确的上下文
-                translated_texts = await self._batch_translate_texts(
-                    texts, config, ctx,
-                    page_index=page_index,
-                    batch_index=batch_index,
-                    batch_original_texts=batch_original_texts
-                )
-
-                # 将翻译结果分配回各个region
-                for i, region in enumerate(ctx.text_regions):
-                    if i < len(translated_texts):
-                        region.translation = translated_texts[i]
-                        region.target_lang = config.translator.target_lang
-                        region._alignment = config.render.alignment
-                        region._direction = config.render.direction
-                
-                # 应用后处理逻辑（括号修正、过滤等）
-                if ctx.text_regions:
-                    ctx.text_regions = await self._apply_post_translation_processing(ctx, config)
-                
-                # 单页目标语言检查（如果启用）
-                if config.translator.enable_post_translation_check and ctx.text_regions:
-                    page_lang_check_result = await self._check_target_language_ratio(
-                        ctx.text_regions,
-                        config.translator.target_lang,
-                        min_ratio=0.3  # 对单页使用更宽松的阈值
-                    )
-                    
-                    if not page_lang_check_result:
-                        logger.warning("Page-level target language check failed for single image")
-                        
-                        # 单页重试逻辑
-                        max_retry = config.translator.post_check_max_retry_attempts
-                        retry_count = 0
-                        
-                        while retry_count < max_retry and not page_lang_check_result:
-                            retry_count += 1
-                            logger.info(f"Retrying single image translation {retry_count}/{max_retry}")
-                            
-                            # 重新翻译
-                            original_texts = [region.text for region in ctx.text_regions if hasattr(region, 'text') and region.text]
-                            if original_texts:
-                                try:
-                                    new_translations = await self._batch_translate_texts(original_texts, config, ctx)
-                                    
-                                    # 更新翻译结果
-                                    text_idx = 0
-                                    for region in ctx.text_regions:
-                                        if hasattr(region, 'text') and region.text and text_idx < len(new_translations):
-                                            old_translation = region.translation
-                                            region.translation = new_translations[text_idx]
-                                            logger.debug(f"Region translation updated: '{old_translation}' -> '{new_translations[text_idx]}'")
-                                            text_idx += 1
-                                    
-                                    # 重新检查
-                                    page_lang_check_result = await self._check_target_language_ratio(
-                                        ctx.text_regions,
-                                        config.translator.target_lang,
-                                        min_ratio=0.3
-                                    )
-                                    
-                                    if page_lang_check_result:
-                                        logger.info("Single image target language check passed")
-                                        break
-                                        
-                                except Exception as e:
-                                    logger.error(f"Error during single image retry {retry_count}: {e}")
-                                    break
-                            else:
-                                break
-                        
-                        if not page_lang_check_result:
-                            logger.warning(f"Single image target language check failed after all {max_retry} retries")
-                
-                # 过滤逻辑
-                if ctx.text_regions:
-                    new_text_regions = []
-                    for region in ctx.text_regions:
-                        should_filter = False
-                        filter_reason = ""
-
-                        if not region.translation.strip():
-                            should_filter = True
-                            filter_reason = "Translation contain blank areas"
-                        elif config.translator.translator != Translator.none:
-                            if region.translation.isnumeric():
-                                should_filter = True
-                                filter_reason = "Numeric translation"
-                            elif not config.translator.translator == Translator.original:
-                                if self._should_filter_identical_translation(config, region):
-                                    should_filter = True
-                                    filter_reason = "Translation identical to original"
-
-                        if should_filter:
-                            if region.translation.strip():
-                                logger.info(f'Filtered out: {region.translation}')
-                                logger.info(f'Reason: {filter_reason}')
-                        else:
-                            new_text_regions.append(region)
-                    ctx.text_regions = new_text_regions
-                
-                return ctx, config
-                
-            except Exception as e:
-                logger.error(f"Error in concurrent translation for single image: {e}")
-                if not self.ignore_errors:
-                    raise
-                self._mark_context_failure(ctx, FileTranslationFailure("translation", e), stage='translation')
-                ctx.text_regions = []
-                return ctx, config
-        
-        # 创建并发任务，为每个任务添加页面索引和批次索引
-        tasks = []
-        for i, ctx_config_pair in enumerate(contexts_with_configs):
-            # 计算当前页面在整个翻译序列中的索引
-            page_index = len(self.all_page_translations) + i
-            batch_index = i  # 在当前批次中的索引
-            ctx_config_pair_with_index = (*ctx_config_pair, page_index, batch_index)
-            task = asyncio.create_task(translate_single_context(ctx_config_pair_with_index))
-            tasks.append(task)
-        
-        logger.info(f'Starting concurrent translation of {len(tasks)} images...')
-        
-        # 等待所有任务完成
-        try:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-        except Exception as e:
-            logger.error(f"Error in concurrent translation gather: {e}")
-            raise
-        
-        # 处理结果，检查是否有异常
-        final_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Image {i+1} concurrent translation failed: {result}")
-                if not self.ignore_errors:
-                    raise result
-                ctx, config = contexts_with_configs[i]
-                self._mark_context_failure(ctx, FileTranslationFailure("translation", result), stage='translation')
-                ctx.text_regions = []
-                final_results.append((ctx, config))
-            else:
-                final_results.append(result)
-        
-        logger.info(f'Concurrent translation completed: {len(final_results)} images processed')
-        return final_results
 
     async def _batch_translate_texts(self, texts: List[str], config: Config, ctx: Context, batch_contexts: List[Context] = None, page_index: int = None, batch_index: int = None, batch_original_texts: List[dict] = None) -> List[str]:
         """
@@ -5075,38 +4730,6 @@ class MangaTranslator:
                 'cpu' if self._gpu_limited_memory else self.device
             )
     
-    def _translate_error_message(self, error_msg: str) -> str:
-        """将英文错误消息转换为中文提示"""
-        error_lower = error_msg.lower()
-        
-        # OpenAI API 错误
-        if '404' in error_msg or 'not found' in error_lower:
-            return "❌ 翻译失败：API端点未找到(404错误)\n💡 解决方法：\n1. 检查API地址是否正确配置\n2. 如使用第三方API，确认模型名称是否正确\n3. 确认API密钥是否有效"
-        
-        if '401' in error_msg or 'unauthorized' in error_lower or 'authentication' in error_lower:
-            return "❌ 翻译失败：API认证失败(401错误)\n💡 解决方法：\n1. 检查API密钥是否正确\n2. 确认API密钥是否已激活\n3. 检查账户是否有足够余额"
-        
-        if '429' in error_msg or 'rate limit' in error_lower:
-            return "❌ 翻译失败：API请求频率超限(429错误)\n💡 解决方法：\n1. 等待一段时间后重试\n2. 升级API套餐以提高请求限制\n3. 减小批处理大小"
-        
-        if '500' in error_msg or '502' in error_msg or '503' in error_msg or 'server error' in error_lower:
-            return "❌ 翻译失败：API服务器错误(5xx错误)\n💡 解决方法：\n1. 稍后重试\n2. 检查API服务状态页面\n3. 尝试使用其他翻译服务"
-        
-        if 'timeout' in error_lower or 'timed out' in error_lower:
-            return "❌ 翻译失败：请求超时\n💡 解决方法：\n1. 检查网络连接\n2. 增加超时时间设置\n3. 减小批处理大小或图片数量"
-        
-        if 'connection' in error_lower:
-            return "❌ 翻译失败：网络连接错误\n💡 解决方法：\n1. 检查网络连接\n2. 检查防火墙设置\n3. 如使用代理，确认代理配置正确"
-        
-        if 'quota' in error_lower or 'balance' in error_lower or 'insufficient' in error_lower:
-            return "❌ 翻译失败：API配额不足或余额不足\n💡 解决方法：\n1. 充值API账户\n2. 检查账户配额使用情况\n3. 升级API套餐"
-        
-        if 'budget' in error_lower or 'exceededbudget' in error_lower:
-            return "❌ 翻译失败：API预算已用完\n💡 解决方法：\n1. 在API提供商后台增加预算限制\n2. 充值账户余额\n3. 等待下个计费周期\n4. 暂时使用其他翻译服务"
-        
-        # 通用错误
-        return f"❌ 翻译失败：{error_msg}\n💡 建议：\n1. 检查API配置是否正确\n2. 查看完整日志以获取详细错误信息\n3. 尝试更换翻译服务"
-
     def _should_filter_identical_translation(self, config: Config, region) -> bool:
         """Keep identical text when no_text_lang_skip is enabled."""
         if getattr(config.translator, 'no_text_lang_skip', False):
