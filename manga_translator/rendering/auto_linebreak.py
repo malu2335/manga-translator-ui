@@ -6,7 +6,7 @@ import re
 import tempfile
 from bisect import bisect_left
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 from shapely.geometry import Polygon
@@ -375,12 +375,21 @@ def _layout_horizontal_cjk(font_size: int, text: str, max_width: int, letter_spa
             char_width = get_char_offset_x(font_size, char, letter_spacing=letter_spacing)
 
             if current_width + char_width > max_width and current_line:
+                # 行首禁则：如果收尾标点本身触发溢出，仍优先贴到上一行。
+                if char in _NO_START_CHARS:
+                    current_line += char
+                    current_width = get_string_width(font_size, current_line, letter_spacing=letter_spacing)
+                    continue
+
                 # 行尾禁则：行尾不能以 no_end_chars 结尾 → 把末字推到下一行
                 if current_line and current_line[-1] in _NO_END_CHARS:
                     last_char = current_line[-1]
-                    current_line = current_line[:-1]
-                    lines.append((current_line, get_string_width(font_size, current_line, letter_spacing=letter_spacing)))
-                    current_line = last_char + char
+                    previous_line = current_line[:-1]
+                    if previous_line:
+                        lines.append((previous_line, get_string_width(font_size, previous_line, letter_spacing=letter_spacing)))
+                        current_line = last_char + char
+                    else:
+                        current_line += char
                 else:
                     lines.append((current_line, current_width))
                     current_line = char
@@ -665,8 +674,15 @@ def _layout_horizontal_eng(
 # ---------------------------------------------------------------------------
 
 def _is_cjk_lang(lang: str) -> bool:
-    lang = (lang or '').lower()
-    return any(lang.startswith(p) for p in ('zh', 'ja', 'ko'))
+    lang = (lang or '').lower().replace('-', '_')
+    return (
+        any(lang.startswith(p) for p in ('zh', 'ja', 'ko'))
+        or lang in ('chs', 'cht', 'jpn', 'zho', 'chi', 'japanese', 'chinese')
+    )
+
+def _is_korean_lang(lang: str) -> bool:
+    lang = (lang or '').lower().replace('-', '_')
+    return lang in ('kor', 'ko', 'ko_kr', 'korean') or lang.startswith('ko_')
 
 def _is_thai_lang(lang: str) -> bool:
     lang = (lang or '').lower()
@@ -751,6 +767,17 @@ def _layout_horizontal_thai(font_size: int, text: str, max_width: int, letter_sp
         return [""], [0]
     return lines, widths
 
+def _layout_horizontal_korean(font_size: int, text: str, max_width: int, letter_spacing: float = 1.0) -> Tuple[List[str], List[int]]:
+    """Korean horizontal layout prefers word-boundary breaks and only splits overlong words."""
+    return _layout_horizontal_eng(
+        font_size,
+        text,
+        max_width,
+        language='ko_KR',
+        hyphenate=False,
+        letter_spacing=letter_spacing,
+    )
+
 
 def _calc_horizontal_layout(
     font_size: int,
@@ -763,6 +790,8 @@ def _calc_horizontal_layout(
     width = max(1, int(max_width))
     if _is_thai_lang(target_lang or 'en_US'):
         return _layout_horizontal_thai(font_size, text, width, letter_spacing=letter_spacing)
+    if _is_korean_lang(target_lang or 'en_US'):
+        return _layout_horizontal_korean(font_size, text, width, letter_spacing=letter_spacing)
     if _is_cjk_lang(target_lang or 'en_US'):
         return _layout_horizontal_cjk(font_size, text, width, letter_spacing=letter_spacing)
     return _layout_horizontal_eng(font_size, text, width, language=target_lang or 'en_US', hyphenate=hyphenate, letter_spacing=letter_spacing)
@@ -783,9 +812,82 @@ def _calc_vertical_layout(
 # fallback: 像素预算均匀插 [BR]
 # ---------------------------------------------------------------------------
 
-def _insert_br_by_pixel_budget(text: str, n_segments: int, font_size: int, horizontal: bool, letter_spacing: float = 1.0) -> str:
+def _insert_br_by_word_pixel_budget(
+    text: str,
+    n_segments: int,
+    font_size: int,
+    letter_spacing: float = 1.0,
+) -> Optional[str]:
+    words = re.findall(r'\S+', text or '')
+    if len(words) <= 1:
+        return None
+
+    n_segments = max(1, min(int(n_segments), len(words)))
+    if n_segments <= 1:
+        return ' '.join(words)
+
+    space_w = max(0, get_char_offset_x(font_size, ' ', letter_spacing=letter_spacing))
+    word_widths = [max(0, get_string_width(font_size, word, letter_spacing=letter_spacing)) for word in words]
+    prefix: List[int] = []
+    total = 0
+    for idx, width in enumerate(word_widths):
+        total += width
+        if idx > 0:
+            total += space_w
+        prefix.append(total)
+
+    if total <= 0:
+        return None
+
+    break_positions: List[int] = []
+    prev = 0
+    for k in range(1, n_segments):
+        target = total * (k / n_segments)
+        min_pos = prev + 1
+        max_pos = len(words) - (n_segments - k)
+        if min_pos > max_pos:
+            break
+
+        idx = bisect_left(prefix, target)
+        candidates = []
+        for ci in (idx - 1, idx):
+            pos = ci + 1
+            if min_pos <= pos <= max_pos:
+                candidates.append(pos)
+        if candidates:
+            pos = min(candidates, key=lambda p: abs(prefix[p - 1] - target))
+        else:
+            pos = min(max(idx + 1, min_pos), max_pos)
+        break_positions.append(pos)
+        prev = pos
+
+    if not break_positions:
+        return None
+
+    parts = []
+    start = 0
+    for pos in break_positions:
+        parts.append(' '.join(words[start:pos]))
+        start = pos
+    parts.append(' '.join(words[start:]))
+    return '[BR]'.join(part for part in parts if part)
+
+
+def _insert_br_by_pixel_budget(
+    text: str,
+    n_segments: int,
+    font_size: int,
+    horizontal: bool,
+    letter_spacing: float = 1.0,
+    target_lang: str = "",
+) -> str:
     if not text or n_segments <= 1:
         return text
+
+    if horizontal and _is_korean_lang(target_lang):
+        word_wrapped = _insert_br_by_word_pixel_budget(text, n_segments, font_size, letter_spacing)
+        if word_wrapped:
+            return word_wrapped
 
     text_len = len(text)
     if text_len <= 1:
@@ -1111,7 +1213,7 @@ def solve_no_br_layout(
         elif lines and len(lines) > 1:
             text_with_br = "[BR]".join(lines)
         elif current_segments > 1:
-            text_with_br = _insert_br_by_pixel_budget(clean_text, current_segments, current_font, horizontal, letter_spacing=letter_spacing_multiplier)
+            text_with_br = _insert_br_by_pixel_budget(clean_text, current_segments, current_font, horizontal, letter_spacing=letter_spacing_multiplier, target_lang=target_lang)
         else:
             text_with_br = clean_text
 
@@ -1160,7 +1262,7 @@ def solve_no_br_layout(
     elif final_lines and len(final_lines) > 1:
         final_text = "[BR]".join(final_lines)
     elif current_segments > 1:
-        final_text = _insert_br_by_pixel_budget(clean_text, current_segments, current_font, horizontal, letter_spacing=letter_spacing_multiplier)
+        final_text = _insert_br_by_pixel_budget(clean_text, current_segments, current_font, horizontal, letter_spacing=letter_spacing_multiplier, target_lang=target_lang)
     else:
         final_text = clean_text
 
