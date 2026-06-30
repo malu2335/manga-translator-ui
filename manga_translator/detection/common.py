@@ -4,10 +4,11 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 
-from ..utils import InfererModule, ModelWrapper, Quadrilateral
+from ..utils import InfererModule, ModelWrapper, Quadrilateral, build_det_rearrange_plan
 
 
 class CommonDetector(InfererModule):
+    supports_detection_rearrange = False
 
     async def detect(self, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float, unclip_ratio: float,
                      verbose: bool = False, min_box_area_ratio: float = 0.0009, result_path_fn=None):
@@ -18,8 +19,9 @@ class CommonDetector(InfererModule):
         # Apply filters
         img_h, img_w = image.shape[:2]
         minimum_image_size = 400
+        rearrange_before_border = self._should_rearrange_before_border(image, detect_size)
         # Automatically add border if image too small (instead of simply resizing due to them more likely containing large fonts)
-        add_border = min(img_w, img_h) < minimum_image_size
+        add_border = min(img_w, img_h) < minimum_image_size and not rearrange_before_border
         if add_border:
             self.logger.debug('Adding border')
             image = self._add_border(image, minimum_image_size)
@@ -33,6 +35,14 @@ class CommonDetector(InfererModule):
             textlines, raw_mask, mask = self._remove_border(image, img_w, img_h, textlines, raw_mask, mask)
 
         return textlines, raw_mask, mask
+
+    def _should_rearrange_before_border(self, image: np.ndarray, detect_size: int) -> bool:
+        if not self.supports_detection_rearrange:
+            return False
+        return build_det_rearrange_plan(image, tgt_size=self._get_rearrange_target_size(detect_size)) is not None
+
+    def _get_rearrange_target_size(self, detect_size: int) -> int:
+        return detect_size
 
     @abstractmethod
     async def _detect(self, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float,

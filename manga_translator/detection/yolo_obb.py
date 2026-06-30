@@ -17,6 +17,8 @@ from .common import OfflineDetector
 class YOLOOBBDetector(OfflineDetector):
     """YOLO 辅助检测器 - 基于 Ultralytics YOLO 运行时"""
 
+    supports_detection_rearrange = True
+
     _MODEL_FILENAME = "ysgyolo_yolo26_2.0.pt"
     _SOURCE_CHECKPOINT_FILENAME = "ysgyolo_yolo26_2.0.pt"
     _MODEL_MAPPING = {
@@ -106,6 +108,9 @@ class YOLOOBBDetector(OfflineDetector):
 
     async def _unload(self):
         self.model = None
+
+    def _get_rearrange_target_size(self, detect_size: int) -> int:
+        return int(getattr(self, "input_size", detect_size))
 
     def xyxy2xyxyxyxy(self, boxes: np.ndarray) -> np.ndarray:
         """将轴对齐框从 xyxy 转换为四角点"""

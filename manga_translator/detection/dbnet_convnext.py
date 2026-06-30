@@ -521,6 +521,8 @@ def det_batch_forward_default(batch: np.ndarray, device: str):
 
 
 class DBConvNextDetector(OfflineDetector):
+    supports_detection_rearrange = True
+
     _MODEL_MAPPING = {
         'model': {
             'url': '',

@@ -62,6 +62,8 @@ def postprocess_yolo(det, conf_thresh, nms_thresh, resize_ratio, sort_func=None)
 
 
 class ComicTextDetector(OfflineDetector):
+    supports_detection_rearrange = True
+
     _MODEL_MAPPING = {
         'model-cuda': {
             'url': [
@@ -111,6 +113,12 @@ class ComicTextDetector(OfflineDetector):
 
     async def _unload(self):
         del self.model
+
+    def _get_rearrange_target_size(self, detect_size: int) -> int:
+        input_size = getattr(self, 'input_size', detect_size)
+        if isinstance(input_size, tuple):
+            return int(input_size[0])
+        return int(input_size)
 
     def det_batch_forward_ctd(self, batch: np.ndarray, device: str) -> Tuple[np.ndarray, np.ndarray]:
         if isinstance(self.model, TextDetBase):

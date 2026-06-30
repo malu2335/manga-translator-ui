@@ -24,6 +24,8 @@ def det_batch_forward_default(batch: np.ndarray, device: str):
     return db, mask
 
 class DefaultDetector(OfflineDetector):
+    supports_detection_rearrange = True
+
     _MODEL_MAPPING = {
         'model': {
             'url': [
