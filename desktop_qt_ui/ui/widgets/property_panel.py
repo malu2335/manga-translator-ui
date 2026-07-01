@@ -134,6 +134,12 @@ class PropertyPanel(QWidget):
         self.block_updates = False
         self.current_region_index = -1
         self.clear_and_disable_selection_dependent()
+        
+        # 仅为上面容易产生严重副作用的下拉框安装滚轮防误触，保留样式设置里的滚轮调节功能
+        from ui.widgets.wheel_filter import install_wheel_filter
+        install_wheel_filter(self.ocr_model_combo)
+        install_wheel_filter(self.translator_combo)
+        install_wheel_filter(self.target_language_combo)
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""

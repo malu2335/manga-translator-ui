@@ -4,7 +4,7 @@
 """
 
 from PyQt6.QtCore import QEvent, QObject
-from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QSpinBox
+from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QSpinBox, QSlider
 
 
 class NoWheelComboBox(QComboBox):
@@ -28,9 +28,19 @@ class WheelEventFilter(QObject):
         """
         if event.type() == QEvent.Type.Wheel:
             # 检查是否是需要特殊处理的控件
-            if isinstance(obj, (QComboBox, QSpinBox, QDoubleSpinBox)):
+            if isinstance(obj, (QComboBox, QSpinBox, QDoubleSpinBox, QSlider)):
                 # 完全忽略滚轮事件，无论是否有焦点
                 event.ignore()
+                
+                # 手动向上冒泡，确保 QScrollArea 等父容器能够接收到滚动事件
+                from PyQt6.QtWidgets import QApplication
+                parent = obj.parentWidget()
+                while parent:
+                    QApplication.sendEvent(parent, event)
+                    if event.isAccepted():
+                        break
+                    parent = parent.parentWidget()
+                
                 return True
         
         # 继续正常处理其他事件
@@ -48,7 +58,7 @@ def install_wheel_filter(widget):
     
     # 递归为所有子控件安装过滤器
     def install_recursive(w):
-        if isinstance(w, (QComboBox, QSpinBox, QDoubleSpinBox)):
+        if isinstance(w, (QComboBox, QSpinBox, QDoubleSpinBox, QSlider)):
             w.installEventFilter(wheel_filter)
             # 禁用控件的焦点策略为滚轮焦点
             w.setFocusPolicy(w.focusPolicy() & ~0x0008)  # 移除 WheelFocus
@@ -63,6 +73,10 @@ def install_wheel_filter(widget):
             child.setFocusPolicy(child.focusPolicy() & ~0x0008)
         
         for child in w.findChildren(QDoubleSpinBox):
+            child.installEventFilter(wheel_filter)
+            child.setFocusPolicy(child.focusPolicy() & ~0x0008)
+
+        for child in w.findChildren(QSlider):
             child.installEventFilter(wheel_filter)
             child.setFocusPolicy(child.focusPolicy() & ~0x0008)
     
